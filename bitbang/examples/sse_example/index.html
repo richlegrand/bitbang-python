@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BitBang SSE Test</title>
+    <style>
+        body { font-family: monospace; margin: 2em; background: #1a1a2e; color: #e0e0e0; }
+        h1 { color: #0f0; }
+        #status { color: #888; margin-bottom: 1em; }
+        #events {
+            border: 1px solid #333;
+            padding: 1em;
+            max-height: 400px;
+            overflow-y: auto;
+            background: #0d0d1a;
+        }
+        .event { padding: 2px 0; }
+        .event:nth-child(even) { color: #0af; }
+        .event:nth-child(odd) { color: #0f0; }
+    </style>
+</head>
+<body>
+    <h1>SSE Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="events"></div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const eventsEl = document.getElementById('events');
+        let count = 0;
+
+        const source = new EventSource('events');
+
+        source.onopen = () => {
+            statusEl.textContent = 'Connected - receiving events';
+        };
+
+        source.onmessage = (e) => {
+            count++;
+            const div = document.createElement('div');
+            div.className = 'event';
+            div.textContent = e.data;
+            eventsEl.appendChild(div);
+            eventsEl.scrollTop = eventsEl.scrollHeight;
+            statusEl.textContent = `Connected - ${count} events received`;
+        };
+
+        source.onerror = () => {
+            statusEl.textContent = 'Connection lost - reconnecting...';
+        };
+    </script>
+</body>
+</html>
