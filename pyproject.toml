@@ -32,8 +32,8 @@ bitbang-webcam = "bitbang.apps.webcam.app:main"
 fastapi = ["fastapi", "uvicorn"]
 
 [project.urls]
-Homepage = "https://github.com/richlegrand/bitbang"
-Source = "https://github.com/richlegrand/bitbang"
+Homepage = "https://github.com/richlegrand/bitbang-python"
+Source = "https://github.com/richlegrand/bitbang-python"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

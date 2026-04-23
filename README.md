@@ -1,9 +1,9 @@
 # BitBang
 
-![Tests](https://github.com/richlegrand/bitbang/actions/workflows/tests.yml/badge.svg)
+![Tests](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml/badge.svg)
 ![PyPI](https://img.shields.io/pypi/v/bitbang)
 ![Python](https://img.shields.io/pypi/pyversions/bitbang)
-![License](https://img.shields.io/github/license/richlegrand/bitbang)
+![License](https://img.shields.io/github/license/richlegrand/bitbang-python)
 
 Access your local web server from anywhere -- no account, no subscription, no cloud in the middle. BitBang uses WebRTC to connect browsers directly to your device, peer-to-peer.
 
@@ -167,7 +167,7 @@ WebRTC is the behind-the-scenes technology that makes Zoom and Google Meet video
 
 Browsers normally connect to web servers over a TCP socket. BitBang replaces this with a WebRTC data channel:
 
-![BitBang Python Block Diagram](https://raw.githubusercontent.com/richlegrand/bitbang/refs/heads/main/assets/bitbang_python.png)
+![BitBang Python Block Diagram](https://raw.githubusercontent.com/richlegrand/bitbang-python/refs/heads/main/assets/bitbang_python.png)
 
 The signaling server (`bitba.ng`) brokers the WebRTC handshake, then has no further involvement and never sees application data.
 
