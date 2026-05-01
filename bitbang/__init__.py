@@ -13,4 +13,4 @@ __version__ = "0.1.48"
 
 # SWSP protocol version sent in the register message. The signaling server
 # rejects devices below its minimum. Bump only for breaking wire changes.
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2

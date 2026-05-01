@@ -18,6 +18,19 @@ import base64
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes, serialization
 
+# Domain separation tag prepended to the challenge nonce before signing.
+# Must match the signaling server's AUTH_DOMAIN.
+#
+# Prevents cross-protocol attacks: without this prefix, a malicious server
+# could send nonce = SHA256(arbitrary_payload) and reuse the device's
+# signature in another context (e.g. firmware verification) that uses the
+# same RSA key. Binding every signature to its purpose makes a signature
+# from one context structurally invalid in any other.
+#
+# Bumped only if the signing scheme itself changes (padding/hash/structure),
+# not when the surrounding protocol version changes.
+AUTH_DOMAIN = b"bitbang-auth-v1:"
+
 
 def generate_identity():
     """Generate new RSA-2048 identity.
@@ -84,7 +97,8 @@ def public_key_from_base64(b64_str: str):
 def sign_challenge(private_key, nonce: bytes) -> bytes:
     """Sign challenge nonce with private key.
 
-    Uses PKCS1v15 padding with SHA-256 hash.
+    Uses RSASSA-PKCS1v1_5 padding with SHA-256 hash. The signed payload is
+    AUTH_DOMAIN + nonce; see AUTH_DOMAIN comment.
 
     Args:
         private_key: RSA private key object
@@ -94,7 +108,7 @@ def sign_challenge(private_key, nonce: bytes) -> bytes:
         bytes: Signature
     """
     return private_key.sign(
-        nonce,
+        AUTH_DOMAIN + nonce,
         padding.PKCS1v15(),
         hashes.SHA256()
     )
@@ -102,6 +116,8 @@ def sign_challenge(private_key, nonce: bytes) -> bytes:
 
 def verify_challenge(public_key, nonce: bytes, signature: bytes) -> bool:
     """Verify challenge signature.
+
+    Mirrors sign_challenge — RSASSA-PKCS1v1_5 + SHA-256 over AUTH_DOMAIN + nonce.
 
     Args:
         public_key: RSA public key object
@@ -114,7 +130,7 @@ def verify_challenge(public_key, nonce: bytes, signature: bytes) -> bool:
     try:
         public_key.verify(
             signature,
-            nonce,
+            AUTH_DOMAIN + nonce,
             padding.PKCS1v15(),
             hashes.SHA256()
         )
