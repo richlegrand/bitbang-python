@@ -57,10 +57,11 @@ def test_pin_wrong_retries(pin_device_url, playwright):
     page.click('#pin-submit')
 
     # After delay, PIN prompt should still be visible (ready for retry)
-    page.wait_for_timeout(3000)
+    page.wait_for_timeout(4000)
     assert page.locator('#pin-input').is_visible()
 
-    # Now enter correct PIN
+    # Clear and enter correct PIN
+    page.locator('#pin-input').clear()
     page.fill('#pin-input', '1234')
     page.click('#pin-submit')
 
