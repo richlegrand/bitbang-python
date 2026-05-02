@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bitbang"
-version = "0.1.49"
+version = "0.1.50"
 description = "Connect browsers to devices via WebRTC"
 readme = "README.md"
 license = "MIT"
