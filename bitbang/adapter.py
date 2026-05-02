@@ -519,8 +519,17 @@ class BitBangBase:
         if 'ws_conns' not in peer:
             peer['ws_conns'] = {}
 
+        # Forward cookies so the target app can identify the session.
+        # Without this, session timeouts fire because WebSocket messages
+        # don't touch the session (e.g. OctoPrint's 15-min timeout).
+        extra_headers = {}
+        cookies = request.get('cookies')
+        if cookies:
+            extra_headers['Cookie'] = cookies
+
         try:
-            ws = await websockets.connect(uri, ping_interval=None)
+            ws = await websockets.connect(uri, ping_interval=None,
+                                          additional_headers=extra_headers)
         except Exception as e:
             print(f"WS connect failed: {pathname} -> {e}")
             channel.send(struct.pack('<IHH', stream_id, FLAG_FIN, 0))
