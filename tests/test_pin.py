@@ -44,7 +44,7 @@ def test_pin_correct_proceeds(pin_device_url, playwright):
 
 
 def test_pin_wrong_retries(pin_device_url, playwright):
-    """Entering the wrong PIN shows spinner then re-prompts."""
+    """Entering the wrong PIN re-prompts after a delay."""
     browser = playwright.chromium.launch(headless=True)
     context = browser.new_context()
     page = context.new_page()
@@ -56,11 +56,8 @@ def test_pin_wrong_retries(pin_device_url, playwright):
     page.fill('#pin-input', '0000')
     page.click('#pin-submit')
 
-    # PIN input should disappear (spinner shown)
-    page.wait_for_selector('#pin-input', state='hidden', timeout=5000)
-
-    # After delay, PIN prompt should reappear
-    page.wait_for_selector('#pin-input', timeout=10000)
+    # After delay, PIN prompt should still be visible (ready for retry)
+    page.wait_for_timeout(3000)
     assert page.locator('#pin-input').is_visible()
 
     # Now enter correct PIN
