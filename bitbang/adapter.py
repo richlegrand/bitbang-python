@@ -159,6 +159,7 @@ class BitBangBase:
         self.server = server or self.DEFAULT_SERVER
         self.debug = debug
         self.ice_servers = ice_servers  # custom TURN config (browser-native format)
+        self._last_ice_servers = []   # latest ICE servers from signaling server
         self.pin = pin
         self.pin_callback = pin_callback
         self.ws_target = None  # Set to "host:port" to enable WebSocket bridging
@@ -204,6 +205,10 @@ class BitBangBase:
                         except socket.gaierror:
                             pass
         return ips
+
+    def get_ice_servers(self):
+        """Return the latest ICE servers from the signaling server (browser-native format)."""
+        return self._last_ice_servers
 
     def _build_rtc_config(self, ice_servers):
         """Convert browser-native iceServers list to aiortc RTCConfiguration."""
@@ -358,6 +363,7 @@ class BitBangBase:
 
             # Create peer connection with ICE servers from signaling server
             ice_servers = message.get('ice_servers') or []
+            self._last_ice_servers = ice_servers
             turn_ips = self._resolve_turn_ips(ice_servers)
             pc = RTCPeerConnection(self._build_rtc_config(ice_servers))
 
