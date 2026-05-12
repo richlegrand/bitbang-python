@@ -23,8 +23,9 @@ Quick test:
 bitbang-fileshare ~/Downloads            # Linux / macOS
 python -m bitbang fileshare ~/Downloads  # Windows (or any platform)
 ```
+![bitbang-fileshare](https://raw.githubusercontent.com/richlegrand/bitbang-python/refs/heads/main/assets/bitbang_screen.png)
 
-This prints a URL and QR code. Anyone with the link can browse and download files directly from your machine, or they can upload files to the specified directory. Note, you can verify it works outside your local network, by scanning the QR code from a phone on cellular (turn off WiFi).
+Scan the QR code, which contains the BitBang URL. Anyone with the URL can browse and download files directly from your machine, or they can upload files to the specified directory. Note, you can verify it works outside your local network, by scanning the QR code from a phone on cellular (turn off WiFi).
 
 ## Flask / FastAPI integration (or any WSGI / ASGI web framework)
 
@@ -163,12 +164,12 @@ BitBang connects a browser directly to any machine on your local network, from a
 
 ### WebRTC
 
-WebRTC is the behind-the-scenes technology that makes Zoom and Google Meet video conferencing possible. WebRTC offers the highest bandwidth and lowest latency possible, which is good when you're streaming live video, or practically anything else. It's mature, well-tested, and has ubiquitous support across all browsers. In addition to delivering low-latency media, it can also deliver raw data over "data channels", which is what BitBang uses.
+WebRTC is the behind-the-scenes technology that makes Zoom and Google Meet video conferencing possible. WebRTC offers the highest bandwidth and lowest latency possible, which is good when you're streaming live video, or practically anything else. It's mature, well-tested, and has ubiquitous support across all browsers. In addition to delivering low-latency media, it can also deliver raw data over "data channels", which is what BitBang uses for proxying HTML and WebSockets.
 
 
 ## How it works
 
-Browsers normally connect to web servers over a TCP socket. BitBang replaces this with a WebRTC data channel:
+Browsers normally connect to web servers over a TCP socket. BitBang replaces this with a WebRTC data channel.
 
 ![BitBang Python Block Diagram](https://raw.githubusercontent.com/richlegrand/bitbang-python/refs/heads/main/assets/bitbang_python.png)
 
@@ -179,7 +180,7 @@ The signaling server (`bitba.ng`) brokers the WebRTC handshake, then has no furt
 The signaling server source is available [here](https://github.com/richlegrand/bitbang-server). It:
 
 1. Serves the BitBang browser runtime
-2. Validates connecting devices via RSA challenge
+2. Authenticates connecting devices via RSA challenge
 3. Maintains WebSocket connections to active devices
 4. Brokers ICE candidate and SDP exchange between browsers and devices
 
@@ -203,4 +204,4 @@ MIT See [LICENSE](LICENSE).
 
 ## Contributing
 
-This is a one-person project. Issues and PRs are welcome and genuinely appreciated. I'll do my best to respond promptly.
+Issues and PRs are welcome. 

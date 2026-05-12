@@ -232,8 +232,6 @@ class BitBangBase:
         self._loop = asyncio.get_event_loop()
         uri = f"wss://{self.server}/ws/device/{self.uid}"
         ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
 
         while True:
             try:
