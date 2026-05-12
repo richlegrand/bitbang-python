@@ -1,4 +1,4 @@
-# BitBang
+# BitBang Python
 
 ![Tests](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml/badge.svg)
 ![PyPI](https://img.shields.io/pypi/v/bitbang)
@@ -6,6 +6,9 @@
 ![License](https://img.shields.io/github/license/richlegrand/bitbang-python)
 
 Access your local web server from anywhere -- no account, no subscription, no cloud in the middle. BitBang uses WebRTC to connect browsers directly to your device, peer-to-peer.
+
+This is part of the [BitBang project](https://github.com/richlegrand/bitbang). 
+
 
 ## Quick demo
 
@@ -190,28 +193,14 @@ WebRTC mandates encryption:
 - **Media streams**: SRTP 
 - **Signaling**: HTTPS and WSS
 
-Furthermore, each BitBang "device" generates an RSA keypair. The public key hash becomes its unique 128-bit ID, which is used in its BitBang public URL. The signaling server challenge-verifies key ownership (and hence ID) before accepting connections.
-
-## Related
-
-[BitBangProxy](https://github.com/richlegrand/bitbangproxy) is a standalone Go binary that proxies any local web serve (NAS, router, media server, etc.) through a WebRTC data channel. You simply run it on a local machine -- Windows, macOS, and Linux are supported. The target is specified in the URL at browse-time:
-
-```
-https://bitba.ng/<proxy-id>/192.168.1.10
-https://bitba.ng/<proxy-id>/nas.local
-https://bitba.ng/<proxy-id>/octopi.local:5000
-```
-
-## Roadmap
-
-**ESP32 support** -- Native BitBang for microcontrollers, including video streaming and OTA updates. It's an IoT network with no account set-up, subscription, etc. Espressif has released a closed-source WebRTC library. Ours is a port of [libdatachannel](https://github.com/paullouisageneau/libdatachannel), and it's open of course.
+Furthermore, each BitBang "device" generates an RSA keypair. The public key hash becomes its unique 128-bit ID, which is used in its BitBang public URL. The signaling server challenge-verifies key ownership (and hence ID) before accepting connections (authenticates).
 
 ---
 
 ## License
 
-MIT
+MIT See [LICENSE](LICENSE).
 
 ## Contributing
 
-Issues and pull requests are welcome.
+This is a one-person project. Issues and PRs are welcome and genuinely appreciated. I'll do my best to respond promptly.
