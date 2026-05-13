@@ -549,6 +549,8 @@ class BitBangBase:
 
         # Read from local WS, forward to browser as DAT frames
         async def ws_reader():
+            close_code = 1006   # default if we don't get a clean ConnectionClosed
+            close_reason = ''
             try:
                 async for msg in ws:
                     if isinstance(msg, str):
@@ -556,17 +558,23 @@ class BitBangBase:
                     else:
                         data = b'\x01' + msg  # 1 = binary
                     channel.send(struct.pack('<IHH', stream_id, FLAG_DAT, len(data)) + data)
-            except websockets.exceptions.ConnectionClosed:
-                pass
+            except websockets.exceptions.ConnectionClosed as e:
+                close_code = e.code or 1006
+                close_reason = e.reason or ''
             except Exception as e:
+                close_reason = f'reader exception: {e}'
                 if self.debug:
                     print(f"WS reader error (stream={stream_id}): {e}")
             finally:
-                # Send FIN to browser
-                channel.send(struct.pack('<IHH', stream_id, FLAG_FIN, 0))
+                # FIN payload: JSON {code, reason} so the page can surface the
+                # actual close code from the upstream WS instead of synthesizing
+                # 1006. Bootstrap parses this and emits it on the ws-closed
+                # event to ws-shim.
+                fin_meta = json.dumps({'code': close_code, 'reason': close_reason}).encode('utf-8')
+                channel.send(struct.pack('<IHH', stream_id, FLAG_FIN, len(fin_meta)) + fin_meta)
                 peer['ws_conns'].pop(stream_id, None)
                 if self.debug:
-                    print(f"WS closed: {pathname} (stream={stream_id})")
+                    print(f"WS closed: {pathname} (stream={stream_id}) code={close_code} reason={close_reason!r}")
 
         asyncio.ensure_future(ws_reader())
 
