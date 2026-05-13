@@ -13,7 +13,7 @@ This is part of the [BitBang project](https://github.com/richlegrand/bitbang).
 ## Quick demo
 
 Install:
-```
+```bash
 pip install bitbang              # Linux / macOS
 python -m pip install bitbang    # Windows (or any platform) 
 ```
@@ -162,7 +162,7 @@ Because of rule 2, machines on your local network aren't reachable from outside 
 
 BitBang connects a browser directly to any machine on your local network, from anywhere on the Internet. No cloud intermediary, no account, no third party in the middle. It uses a novel application of the peer-to-peer technology WebRTC. 
 
-### WebRTC
+### WebRTC?
 
 WebRTC is the behind-the-scenes technology that makes Zoom and Google Meet video conferencing possible. WebRTC offers the highest bandwidth and lowest latency possible, which is good when you're streaming live video, or practically anything else. It's mature, well-tested, and has ubiquitous support across all browsers. In addition to delivering low-latency media, it can also deliver raw data over "data channels", which is what BitBang uses for proxying HTML and WebSockets.
 
