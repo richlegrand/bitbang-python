@@ -613,6 +613,24 @@ class BitBangBase:
         flags = FLAG_SYN | FLAG_FIN if fin else FLAG_SYN
         channel.send(struct.pack('<IHH', 0, flags, len(payload)) + payload)
 
+    # SWSP v3 wire-protocol version. Sent in `ready` payloads so clients
+    # know what to expect on the data channel. The frame format is
+    # unchanged from v2; v3 adds typed SYNs and capability negotiation.
+    SWSP_VERSION = 3
+
+    # Stream types this adapter knows how to handle. Sent back in the
+    # `ready` payload as `caps`. Clients use this to gracefully degrade
+    # when a feature isn't supported by the listener.
+    SWSP_CAPS = ['http', 'websocket']
+
+    def _send_ready(self, channel):
+        """Send the SWSP v3 ready handshake (caps + server_version)."""
+        self._send_control(channel, {
+            "type": "ready",
+            "caps": list(self.SWSP_CAPS),
+            "server_version": self.SWSP_VERSION,
+        }, fin=True)
+
     def _handle_control_message(self, channel, payload, client_id=None):
         """Handle control messages on streamId 0 (connect/auth handshake)."""
         try:
@@ -622,8 +640,12 @@ class BitBangBase:
 
         if msg.get('type') == 'connect':
             path = msg.get('path', '/')
+            client_caps = msg.get('caps')      # SWSP v3, optional
+            client_version = msg.get('version')  # SWSP v3, optional
             if self.debug:
-                print(f"Connect handshake: path={path}")
+                print(f"Connect handshake: path={path}"
+                      + (f" caps={client_caps}" if client_caps else "")
+                      + (f" v{client_version}" if client_version else ""))
 
             # Store the connect path for PIN callback
             if client_id and client_id in self.peers:
@@ -632,7 +654,7 @@ class BitBangBase:
             if self._pin_required(path):
                 self._send_control(channel, {"type": "auth_required"})
             else:
-                self._send_control(channel, {"type": "ready"}, fin=True)
+                self._send_ready(channel)
 
         elif msg.get('type') == 'auth':
             pin = msg.get('pin', '')
@@ -693,9 +715,25 @@ class BitBangBase:
             if flags & FLAG_SYN:
                 request = json.loads(payload.decode('utf-8'))
 
-                # WebSocket open request
-                if request.get('type') == 'websocket':
+                # SWSP v3 dispatches on the SYN's `type` field. v2 HTTP
+                # SYNs omit it; treat missing as "http" for compatibility.
+                stream_type = request.get('type') or 'http'
+
+                if stream_type == 'websocket':
                     await self._handle_ws_open(channel, stream_id, request, peer)
+                    return
+                if stream_type != 'http':
+                    # Unknown stream type — send a 500 error response so the
+                    # client doesn't hang waiting for SYN/DAT/FIN frames.
+                    error_msg = f"unsupported stream type: {stream_type}"
+                    error_json = json.dumps({
+                        "status": 500,
+                        "headers": {"Content-Type": "text/plain"},
+                    }).encode('utf-8')
+                    channel.send(struct.pack('<IHH', stream_id, FLAG_SYN, len(error_json)) + error_json)
+                    body = error_msg.encode('utf-8')
+                    channel.send(struct.pack('<IHH', stream_id, 0, len(body)) + body)
+                    channel.send(struct.pack('<IHH', stream_id, FLAG_FIN, 0))
                     return
 
                 if flags & FLAG_FIN:
