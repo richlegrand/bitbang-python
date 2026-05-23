@@ -114,6 +114,31 @@ def sign_challenge(private_key, nonce: bytes) -> bytes:
     )
 
 
+def decrypt_oaep(private_key, ciphertext: bytes) -> bytes:
+    """Decrypt a payload that the browser encrypted with RSA-OAEP/SHA-256.
+
+    The browser uses SubtleCrypto with `{name: 'RSA-OAEP', hash: 'SHA-256'}`
+    and no label; this is the matching decrypt. Used to unwrap the
+    bidirectional-verify payload ({fingerprint, nonce}) that the browser
+    delivers on the WebRTC answer.
+
+    Args:
+        private_key: RSA private key object
+        ciphertext: Bytes produced by RSA-OAEP/SHA-256 to this key's public key
+
+    Returns:
+        bytes: Plaintext payload
+    """
+    return private_key.decrypt(
+        ciphertext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None,
+        ),
+    )
+
+
 def verify_challenge(public_key, nonce: bytes, signature: bytes) -> bool:
     """Verify challenge signature.
 

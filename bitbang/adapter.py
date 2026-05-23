@@ -58,6 +58,27 @@ import websockets
 FLAG_SYN = 0x0001
 FLAG_FIN = 0x0004
 FLAG_DAT = 0x0000
+
+
+# Bidirectional-verify helpers --------------------------------------------
+#
+# The browser RSA-OAEP encrypts {fingerprint, nonce} to the device's pubkey
+# and rides it on the answer. We decrypt, check the fingerprint against the
+# fingerprint actually in the SDP (a rogue relay rewriting SDPs would
+# mismatch), and reply with sha256(nonce) on stream 0 as soon as the data
+# channel opens. The browser doesn't trust the channel until that hash lands.
+
+_FINGERPRINT_RE = re.compile(r'^a=fingerprint:sha-256\s+([0-9A-Fa-f:]+)\s*$', re.IGNORECASE | re.MULTILINE)
+
+
+def _extract_dtls_fingerprint(sdp: str) -> str:
+    """Return the sha-256 DTLS fingerprint from an SDP, uppercased.
+
+    Mirrors the same extraction in peer/verify.go and bootstrap.js so the
+    three sides compare strings without normalization games.
+    """
+    m = _FINGERPRINT_RE.search(sdp or '')
+    return m.group(1).upper() if m else ''
 SWSP_CHUNK_SIZE = 16384  # 16KB chunks
 
 BANNER = r"""   ___  _ __  ___
@@ -249,8 +270,14 @@ class BitBangBase:
                 await asyncio.sleep(3)
 
     async def _register(self, ws):
-        """Send registration and handle challenge-response. Returns True on success."""
-        from .identity import sign_challenge, print_qr_code
+        """Send registration and wait for the server to acknowledge. Returns True on success.
+
+        The signaling server no longer challenges devices to prove private-key
+        possession; the browser-side bidirectional verify catches imposters
+        end-to-end. The server still enforces UID == hash(public_key) so a
+        device can only register a UID derived from its own pubkey.
+        """
+        from .identity import print_qr_code
 
         from . import PROTOCOL_VERSION
 
@@ -265,41 +292,33 @@ class BitBangBase:
             reg['ice_servers'] = self.ice_servers
         await ws.send(json.dumps(reg))
 
-        # Wait for challenge or registered
-        while True:
-            data = json.loads(await ws.recv())
+        data = json.loads(await ws.recv())
 
-            if data['type'] == 'challenge':
-                # Sign the nonce and respond
-                nonce = base64.b64decode(data['nonce'])
-                signature = sign_challenge(self.private_key, nonce)
-                await ws.send(json.dumps({
-                    'type': 'challenge_response',
-                    'signature': base64.b64encode(signature).decode('ascii')
-                }))
+        if data['type'] == 'registered':
+            url = f"https://{self.server}/{self.uid}"
+            if self.debug:
+                url += "?debug"
+            print(BANNER)
+            from bitbang import __version__
+            print(f"v{__version__}")
+            if self.debug:
+                import aiortc
+                print(f"  aiortc {aiortc.__version__}, websockets {websockets.__version__}, Python {sys.version.split()[0]}")
+            print()
+            print_qr_code(url)
+            print(f"\nReady: {url}\n")
+            return True
 
-            elif data['type'] == 'registered':
-                url = f"https://{self.server}/{self.uid}"
-                if self.debug:
-                    url += "?debug"
-                print(BANNER)
-                from bitbang import __version__
-                print(f"v{__version__}")
-                if self.debug:
-                    import aiortc
-                    print(f"  aiortc {aiortc.__version__}, websockets {websockets.__version__}, Python {sys.version.split()[0]}")
-                print()
-                print_qr_code(url)
-                print(f"\nReady: {url}\n")
-                return True
+        if data['type'] == 'error':
+            if data.get('message') == 'protocol_too_old':
+                print("\nPlease upgrade bitbang:")
+                print("  pip install --upgrade bitbang\n")
+            else:
+                print(f"Registration failed: {data.get('message')}")
+            return False
 
-            elif data['type'] == 'error':
-                if data.get('message') == 'protocol_too_old':
-                    print("\nPlease upgrade bitbang:")
-                    print("  pip install --upgrade bitbang\n")
-                else:
-                    print(f"Registration failed: {data.get('message')}")
-                return False
+        print(f"Unexpected message from server: {data.get('type')}")
+        return False
 
     async def _message_loop(self, ws):
         """Dispatch incoming signaling messages."""
@@ -377,12 +396,38 @@ class BitBangBase:
             self.peers[client_id] = {
                 'pc': pc,
                 'channel': channel,
-                'pending_requests': {}  # stream_id -> {'meta': {...}, ...}
+                'pending_requests': {},  # stream_id -> {'meta': {...}, ...}
+                # Bidirectional-verify state — set by handle_answer when the
+                # browser delivers the encrypted payload riding on the SDP.
+                'verify_nonce': None,
+                'verify_failed': False,
             }
 
             @channel.on("open")
             def on_open():
                 self._log_connection_type(pc, turn_ips)
+                peer = self.peers.get(client_id)
+                if peer is None:
+                    return
+                if peer['verify_failed']:
+                    if self.debug:
+                        print(f"Verify failed for {client_id} — closing without nonce reply")
+                    asyncio.ensure_future(pc.close())
+                    return
+                nonce = peer.get('verify_nonce')
+                if not nonce:
+                    if self.debug:
+                        print(f"No bidirectional-verify nonce for {client_id} — closing")
+                    asyncio.ensure_future(pc.close())
+                    return
+                # First stream-0 frame: hash(nonce) so the browser knows the
+                # device actually decrypted the payload (and so possesses
+                # the private key for the UID's pubkey).
+                import hashlib
+                self._send_control(channel, {
+                    "type": "verify_nonce_hash",
+                    "hash": base64.b64encode(hashlib.sha256(nonce).digest()).decode('ascii'),
+                })
 
             @channel.on("message")
             async def on_message(msg, cid=client_id):
@@ -475,7 +520,16 @@ class BitBangBase:
         return streams
 
     async def handle_answer(self, websocket, message):
-        """Handle answer from browser - set remote description."""
+        """Handle answer from browser - set remote description and run bidirectional verify.
+
+        The browser rides an RSA-OAEP-encrypted {fingerprint, nonce} payload
+        on the answer. We decrypt with the device's private key, confirm the
+        fingerprint matches the one in the SDP (a rogue relay rewriting SDPs
+        would mismatch), and stash the nonce so the data-channel `open`
+        handler can reply with sha256(nonce). If verification fails we mark
+        the peer so `on_open` closes the connection without sending anything.
+        """
+        from .identity import decrypt_oaep
         try:
             client_id = message.get('client_id')
             if client_id not in self.peers:
@@ -483,7 +537,8 @@ class BitBangBase:
                     print(f"Unknown client_id in answer: {client_id}")
                 return
 
-            pc = self.peers[client_id]['pc']
+            peer = self.peers[client_id]
+            pc = peer['pc']
 
             sdp_source = message['sdp']
             if isinstance(sdp_source, str) and sdp_source.strip().startswith('{'):
@@ -499,6 +554,41 @@ class BitBangBase:
             await pc.setRemoteDescription(obj)
             if self.debug:
                 print(f"Set remote description with answer for {client_id}")
+
+            encrypted_b64 = message.get('encrypted_request')
+            if not encrypted_b64:
+                peer['verify_failed'] = True
+                print(f"Missing encrypted_request from browser ({client_id}) — bidirectional verify required")
+                return
+
+            try:
+                ciphertext = base64.b64decode(encrypted_b64)
+                plaintext = decrypt_oaep(self.private_key, ciphertext)
+                req = json.loads(plaintext.decode('utf-8'))
+                claimed_fp = req['fingerprint']
+                nonce = base64.b64decode(req['nonce'])
+            except Exception as e:
+                peer['verify_failed'] = True
+                print(f"Could not decrypt/parse encrypted_request from {client_id}: {e}")
+                return
+
+            actual_fp = _extract_dtls_fingerprint(sdp_val)
+            if not actual_fp:
+                peer['verify_failed'] = True
+                print(f"No sha-256 fingerprint in answer SDP from {client_id}")
+                return
+
+            if claimed_fp.upper() != actual_fp:
+                peer['verify_failed'] = True
+                print(
+                    f"DTLS fingerprint mismatch from {client_id}: "
+                    f"browser claimed {claimed_fp}, SDP has {actual_fp} — possible rogue relay"
+                )
+                return
+
+            peer['verify_nonce'] = nonce
+            if self.debug:
+                print(f"Bidirectional verify payload decrypted OK for {client_id}")
 
         except Exception as e:
             print(f"Error handling answer: {e}")
