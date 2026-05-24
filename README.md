@@ -194,7 +194,7 @@ WebRTC mandates encryption:
 - **Media streams**: SRTP 
 - **Signaling**: HTTPS and WSS
 
-Furthermore, each BitBang "device" generates an RSA keypair. The public key hash becomes its unique 128-bit ID, which is used in its BitBang public URL. The signaling server challenge-verifies key ownership (and hence ID) before accepting connections (authenticates).
+Furthermore, each BitBang "device" generates an RSA keypair. The public key hash becomes its unique 128-bit ID, which is used in its BitBang public URL. A 64-bit access code rides in the URL fragment (after `#`) so the signaling server — which sees the path but never the fragment — can route connections but cannot initiate them. See [SECURITY.md](https://github.com/richlegrand/bitbang-server/blob/main/SECURITY.md) for the full trustless-signaling model.
 
 ---
 

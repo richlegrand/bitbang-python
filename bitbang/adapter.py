@@ -37,6 +37,7 @@ Example usage (FastAPI):
 
 import asyncio
 import base64
+import hmac
 import io
 import json
 import os
@@ -167,7 +168,7 @@ class BitBangBase:
         """
         from .identity import load_or_create_identity, public_key_to_base64
 
-        self.private_key, self.uid = load_or_create_identity(
+        self.private_key, self.uid, self.code = load_or_create_identity(
             program_name=program_name,
             ephemeral=ephemeral,
             identity_path=identity_path,
@@ -185,6 +186,26 @@ class BitBangBase:
         self.pin_callback = pin_callback
         self.ws_target = None  # Set to "host:port" to enable WebSocket bridging
         self.peers = {}  # client_id -> {'pc': RTCPeerConnection, 'channel': DataChannel}
+
+    @property
+    def url(self):
+        """The public BitBang URL for this device.
+
+        Single source of truth for the URL — consumers (plugins, wrappers,
+        downstream apps) should read this rather than reconstruct it from
+        ``server`` / ``uid`` / ``code``, since the exact shape (query
+        params, fragment, etc.) is the protocol's concern, not theirs.
+
+        Layout: ``https://<server>/<uid>[?debug]#<code>``. The fragment
+        carries the 40-bit access code, which browsers never send to the
+        signaling server. ``?debug`` (when ``self.debug`` is set) opens
+        the bootstrap UI in step-by-step mode.
+        """
+        url = f"https://{self.server}/{self.uid}"
+        if self.debug:
+            url += "?debug"
+        url += f"#{self.code}"
+        return url
 
     def setup_peer_connection(self, pc, client_id):
         """Hook for subclasses to add media tracks.
@@ -295,9 +316,7 @@ class BitBangBase:
         data = json.loads(await ws.recv())
 
         if data['type'] == 'registered':
-            url = f"https://{self.server}/{self.uid}"
-            if self.debug:
-                url += "?debug"
+            url = self.url
             print(BANNER)
             from bitbang import __version__
             print(f"v{__version__}")
@@ -397,6 +416,10 @@ class BitBangBase:
                 'pc': pc,
                 'channel': channel,
                 'pending_requests': {},  # stream_id -> {'meta': {...}, ...}
+                # browser_ip is supplied by the signaling server (the
+                # browser can't set it itself); used to attribute bad-code
+                # attempts to a source IP in the log.
+                'browser_ip': message.get('browser_ip', ''),
                 # Bidirectional-verify state — set by handle_answer when the
                 # browser delivers the encrypted payload riding on the SDP.
                 'verify_nonce': None,
@@ -567,9 +590,22 @@ class BitBangBase:
                 req = json.loads(plaintext.decode('utf-8'))
                 claimed_fp = req['fingerprint']
                 nonce = base64.b64decode(req['nonce'])
+                claimed_code = req.get('code', '')
             except Exception as e:
                 peer['verify_failed'] = True
                 print(f"Could not decrypt/parse encrypted_request from {client_id}: {e}")
+                return
+
+            # Check the access code before anything else — a wrong code
+            # should never reveal whether the fingerprint matched. Use
+            # constant-time compare to avoid leaking the code via timing.
+            if not hmac.compare_digest(claimed_code, self.code):
+                peer['verify_failed'] = True
+                browser_ip = peer.get('browser_ip') or '?'
+                print(
+                    f"Bad access code from {client_id} (browser_ip={browser_ip}) — "
+                    f"rejecting connection"
+                )
                 return
 
             actual_fp = _extract_dtls_fingerprint(sdp_val)
