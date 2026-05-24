@@ -15,7 +15,9 @@ TEST_SERVER = os.environ.get('BITBANG_TEST_SERVER', 'test.bitba.ng')
 
 collect_ignore = ['test_app_runner.py', 'test_app.py', 'test_pin_app_runner.py',
                   'test_ws_app_runner.py', 'test_ws_app.py']
-DEVICE_STARTUP_TIMEOUT = 15  # seconds to wait for device to register
+DEVICE_STARTUP_TIMEOUT = 30  # seconds to wait for device to register
+                             # (RSA-2048 keygen + TLS handshake + register can
+                             # take >15s on slow CI runners)
 
 
 def _start_device(script, *extra_args):
@@ -32,6 +34,10 @@ def _start_device(script, *extra_args):
         text=True,
     )
 
+    # Keep every line we read so we can include it in the failure message
+    # — readline() consumes from the pipe, so proc.stdout.read() after a
+    # kill returns only whatever was unread, which is usually nothing.
+    captured = []
     url = None
     deadline = time.time() + DEVICE_STARTUP_TIMEOUT
     while time.time() < deadline:
@@ -40,6 +46,7 @@ def _start_device(script, *extra_args):
             if proc.poll() is not None:
                 break
             continue
+        captured.append(line)
         print(f'[device] {line.rstrip()}')
         match = re.search(r'Ready: (https://\S+)', line)
         if match:
@@ -48,8 +55,16 @@ def _start_device(script, *extra_args):
 
     if url is None:
         proc.kill()
-        output = proc.stdout.read()
-        raise RuntimeError(f'Device failed to start. Output:\n{output}')
+        try:
+            captured.append(proc.stdout.read())
+        except Exception:
+            pass
+        full = ''.join(captured) or '(no output captured)'
+        exit_code = proc.poll()
+        raise RuntimeError(
+            f'Device failed to start after {DEVICE_STARTUP_TIMEOUT}s '
+            f'(exit={exit_code}, server={TEST_SERVER}). Output:\n{full}'
+        )
 
     print(f'[device] URL: {url}')
     return proc, url

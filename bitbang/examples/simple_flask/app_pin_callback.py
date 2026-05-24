@@ -56,15 +56,16 @@ def settings():
 </body></html>'''
 
 
-def check_pin(path, pin):
-    """Per-path PIN logic. Called on each connect/navigate."""
-    if path == '/' or path.startswith('/public'):
-        return True
-    if path.startswith('/admin'):
-        return pin == '9999'
-    return pin == '1234'
-
-
 if __name__ == '__main__':
-    adapter = BitBangWSGI(app, program_name='pin_callback_test', pin_callback=check_pin)
+    adapter = BitBangWSGI(app, program_name='pin_callback_test')
+
+    @adapter.pin_callback
+    def check_pin(path, pin):
+        """Per-path PIN logic. Called on each connect/navigate."""
+        if path == '/' or path.startswith('/public'):
+            return True
+        if path.startswith('/admin'):
+            return pin == '9999'
+        return pin == '1234'
+
     adapter.run()

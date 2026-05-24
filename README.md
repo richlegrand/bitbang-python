@@ -109,10 +109,26 @@ adapter = BitBangWSGI(app,
     regenerate=False,          # Delete and regenerate identity
     debug=False,               # Verbose logging + browser debug UI (?debug)
     pin=None,                  # PIN string to protect access
-    pin_callback=None,         # Function(path, pin) -> bool for custom auth
     ice_servers=None,          # Custom TURN server config
 )
 ```
+
+For per-path custom auth, register a PIN checker as a decorator:
+
+```python
+adapter = BitBangWSGI(app)
+
+@adapter.pin_callback
+def check(path, pin):
+    """Return True if `pin` (may be '') is acceptable for `path`."""
+    if path.startswith('/admin'):
+        return pin == '1234'
+    return True   # everything else is open
+```
+
+The decorator takes precedence over the simple ``pin=`` arg. Called once
+with ``pin=''`` to ask "is a PIN required for this path?", then with the
+entered PIN to validate.
 
 If your app uses argparse, `add_bitbang_args` and `bitbang_kwargs` can wire up the standard CLI flags for you:
 

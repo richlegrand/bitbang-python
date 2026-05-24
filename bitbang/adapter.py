@@ -149,7 +149,7 @@ class BitBangBase:
     def __init__(self, app, server=None, debug=False,
                  ephemeral=False, identity_path=None, regenerate=False,
                  ice_servers=None, program_name=None,
-                 pin=None, pin_callback=None):
+                 pin=None):
         """Initialize the adapter.
 
         Args:
@@ -161,10 +161,8 @@ class BitBangBase:
             regenerate: Delete and regenerate identity
             ice_servers: Custom ICE server config (browser-native format)
             program_name: Program name for identity (e.g. 'fileshare', 'webcam')
-            pin: Simple PIN string for access protection
-            pin_callback: Function(path, pin) -> bool for custom auth logic.
-                          Receives the connect path and PIN, returns True if valid.
-                          Takes precedence over pin if both are set.
+            pin: Simple PIN string for access protection. For per-path
+                 custom auth, register a checker via @adapter.pin_callback.
         """
         from .identity import load_or_create_identity, public_key_to_base64
 
@@ -183,9 +181,53 @@ class BitBangBase:
         self.ice_servers = ice_servers  # custom TURN config (browser-native format)
         self._last_ice_servers = []   # latest ICE servers from signaling server
         self.pin = pin
-        self.pin_callback = pin_callback
+        # Set via the @pin_callback decorator below.
+        self._pin_callback = None
         self.ws_target = None  # Set to "host:port" to enable WebSocket bridging
         self.peers = {}  # client_id -> {'pc': RTCPeerConnection, 'channel': DataChannel}
+
+        # Set via the @on_connection_request decorator below. Defaults to
+        # None, in which case handle_request falls back to its own print().
+        self._on_connection_request = None
+
+    def on_connection_request(self, fn):
+        """Decorator: register a callback fired on each new browser connection.
+
+        When set, the callback replaces the adapter's default
+        ``print("Connection request from ...")`` output. Use it to route
+        the event into a host application's structured logger:
+
+            @adapter.on_connection_request
+            def log_connection(client_id, browser_ip):
+                logger.info(f"... {client_id} ... {browser_ip}")
+
+        The callback signature is ``fn(client_id: str, browser_ip: str)``.
+        Exceptions raised by the callback are caught and printed but do
+        not abort the connection.
+        """
+        self._on_connection_request = fn
+        return fn
+
+    def pin_callback(self, fn):
+        """Decorator: register a per-path PIN/auth checker.
+
+        Takes precedence over the simple ``pin=`` constructor arg.
+        Lets you decide on a per-request basis whether a PIN is required
+        and (if entered) whether it's valid:
+
+            @adapter.pin_callback
+            def check(path, pin):
+                if not path.startswith('/admin'):
+                    return True             # no PIN needed
+                return pin == '1234'        # admin paths require this PIN
+
+        Signature: ``fn(path: str, pin: str) -> bool``. Called with
+        ``pin=''`` to ask "is a PIN required for this path?" — return
+        ``True`` to bypass the prompt, ``False`` to demand one. Called
+        with the entered PIN to validate it.
+        """
+        self._pin_callback = fn
+        return fn
 
     @property
     def url(self):
@@ -394,7 +436,13 @@ class BitBangBase:
             # can't set it itself); '?' when the server didn't provide one
             # (older signaling server, or local testing).
             browser_ip = message.get('browser_ip') or '?'
-            print(f"Connection request from {client_id} (browser_ip={browser_ip})")
+            if self._on_connection_request is not None:
+                try:
+                    self._on_connection_request(client_id, browser_ip)
+                except Exception as cb_err:
+                    print(f"on_connection_request callback raised: {cb_err}")
+            else:
+                print(f"Connection request from {client_id} (browser_ip={browser_ip})")
 
             # Clean up previous connection for this client if any
             if client_id in self.peers:
@@ -803,14 +851,14 @@ class BitBangBase:
 
     def _pin_required(self, path='/'):
         """Check if PIN auth is required for this path."""
-        if self.pin_callback:
-            return not self.pin_callback(path, '')
+        if self._pin_callback:
+            return not self._pin_callback(path, '')
         return self.pin is not None
 
     def _verify_pin(self, path, pin):
         """Verify PIN. Returns True if valid."""
-        if self.pin_callback:
-            return self.pin_callback(path, pin)
+        if self._pin_callback:
+            return self._pin_callback(path, pin)
         return self.pin is not None and pin == self.pin
 
     async def handle_datachannel_message(self, channel, message, client_id):

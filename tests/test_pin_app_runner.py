@@ -10,14 +10,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from tests.test_app import app
 from bitbang import BitBangWSGI
 
-def check_pin(path, pin):
-    """/ is open, /admin requires PIN '9999', everything else requires '1234'."""
-    if path == '/':
-        return True
-    if path.startswith('/admin'):
-        return pin == '9999'
-    return pin == '1234'
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--server', default='test.bitba.ng')
@@ -26,7 +18,16 @@ if __name__ == '__main__':
 
     if args.mode == 'callback':
         adapter = BitBangWSGI(app, server=args.server, ephemeral=True,
-                              program_name='test_pin_cb', pin_callback=check_pin)
+                              program_name='test_pin_cb')
+
+        @adapter.pin_callback
+        def check_pin(path, pin):
+            """/ is open, /admin requires PIN '9999', everything else requires '1234'."""
+            if path == '/':
+                return True
+            if path.startswith('/admin'):
+                return pin == '9999'
+            return pin == '1234'
     else:
         adapter = BitBangWSGI(app, server=args.server, ephemeral=True,
                               program_name='test_pin', pin='1234')
