@@ -197,7 +197,7 @@ class BitBangBase:
         params, fragment, etc.) is the protocol's concern, not theirs.
 
         Layout: ``https://<server>/<uid>[?debug]#<code>``. The fragment
-        carries the 40-bit access code, which browsers never send to the
+        carries the 64-bit access code, which browsers never send to the
         signaling server. ``?debug`` (when ``self.debug`` is set) opens
         the bootstrap UI in step-by-step mode.
         """
@@ -389,6 +389,12 @@ class BitBangBase:
         """Handle connection request from browser - create offer and send it."""
         try:
             client_id = message.get('client_id')
+
+            # browser_ip is supplied by the signaling server (the browser
+            # can't set it itself); '?' when the server didn't provide one
+            # (older signaling server, or local testing).
+            browser_ip = message.get('browser_ip') or '?'
+            print(f"Connection request from {client_id} (browser_ip={browser_ip})")
 
             # Clean up previous connection for this client if any
             if client_id in self.peers:

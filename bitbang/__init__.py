@@ -15,7 +15,8 @@ __version__ = "0.1.52"
 # SWSP protocol version sent in the register message. The signaling server
 # rejects devices below its minimum. Bump only for breaking wire changes.
 #
-# v3: split-identity URLs — 80-bit UID + 40-bit access code in fragment.
+# v3: split-identity URLs — 128-bit UID + 64-bit access code in fragment,
+# both base64url-encoded (alphabet [A-Za-z0-9_-], no padding).
 # Browsers/devices on this version must use the new identity format
 # (multi-block PEM); the v3 signaling server rejects legacy 32-hex UIDs.
 PROTOCOL_VERSION = 3
