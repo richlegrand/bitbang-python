@@ -1,5 +1,19 @@
 """Test PIN authentication."""
 
+from urllib.parse import urlparse, urlunparse
+
+
+def _with_path(url: str, path: str) -> str:
+    """Append `path` to `url`, preserving the fragment.
+
+    `url` is the device URL with a `#code` fragment. Naive string
+    concatenation (``url + '/x'``) would push the path inside the
+    fragment, breaking bidirectional verify. This splices the path in
+    before the fragment.
+    """
+    p = urlparse(url)
+    return urlunparse(p._replace(path=p.path + path))
+
 
 def test_pin_prompt_appears(pin_device_url, playwright):
     """Device with PIN shows the PIN prompt before loading content."""
@@ -100,8 +114,10 @@ def test_pin_callback_protected_path(pin_callback_device_url, playwright):
     context = browser.new_context()
     page = context.new_page()
 
-    # Navigate directly to a protected path
-    page.goto(pin_callback_device_url + '/protected', wait_until='networkidle')
+    # Navigate directly to a protected path. Use _with_path to splice
+    # '/protected' in before the URL fragment — naive concatenation would
+    # corrupt the access code.
+    page.goto(_with_path(pin_callback_device_url, '/protected'), wait_until='networkidle')
 
     # Should see PIN prompt
     page.wait_for_selector('#pin-input', timeout=15000)
