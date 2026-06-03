@@ -59,6 +59,7 @@ import websockets
 FLAG_SYN = 0x0001
 FLAG_FIN = 0x0004
 FLAG_DAT = 0x0000
+FLAG_MORE = 0x0002  # non-final fragment of a chunked WS message
 
 
 # Bidirectional-verify helpers --------------------------------------------
@@ -737,7 +738,17 @@ class BitBangBase:
                         data = b'\x00' + msg.encode('utf-8')  # 0 = text
                     else:
                         data = b'\x01' + msg  # 1 = binary
-                    channel.send(struct.pack('<IHH', stream_id, FLAG_DAT, len(data)) + data)
+                    # The data channel caps messages at SWSP_CHUNK_SIZE, so a
+                    # large WS message (e.g. OctoPrint's >64KB state push) must
+                    # be split. Non-final chunks carry FLAG_MORE; the browser
+                    # reassembles them into one WS message. len(chunk) always
+                    # fits the 16-bit length field. (Type byte rides in chunk 0.)
+                    for off in range(0, len(data), SWSP_CHUNK_SIZE):
+                        chunk = data[off:off + SWSP_CHUNK_SIZE]
+                        flags = FLAG_DAT
+                        if off + SWSP_CHUNK_SIZE < len(data):
+                            flags |= FLAG_MORE
+                        channel.send(struct.pack('<IHH', stream_id, flags, len(chunk)) + chunk)
             except websockets.exceptions.ConnectionClosed as e:
                 close_code = e.code or 1006
                 close_reason = e.reason or ''
@@ -768,10 +779,23 @@ class BitBangBase:
             # Browser closed the WebSocket
             await ws.close()
             peer['ws_conns'].pop(stream_id, None)
+            peer.get('ws_rx', {}).pop(stream_id, None)
             return
 
         if len(payload) < 1:
             return
+
+        # The browser splits a large WS message into <=chunk-size DAT frames,
+        # with FLAG_MORE on every non-final chunk. Reassemble before writing so
+        # the message boundary is preserved (the type byte is in the first chunk).
+        rx = peer.setdefault('ws_rx', {})
+        if flags & FLAG_MORE:
+            rx.setdefault(stream_id, bytearray()).extend(payload)
+            return
+        if stream_id in rx:
+            buf = rx.pop(stream_id)
+            buf.extend(payload)
+            payload = bytes(buf)
 
         # Parse type byte + message
         type_byte = payload[0]
