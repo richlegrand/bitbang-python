@@ -284,6 +284,16 @@ def main():
         print(f"Sharing directory: {BASE_PATH}")
 
     adapter = BitBangWSGI(app, **bitbang_kwargs(args, program_name='fileshare'))
+
+    # CLI override of the library-default on_preempted. The library
+    # default just logs; for an interactive CLI, the right response is
+    # to print a clear line and exit with a distinct code. Library users
+    # who embed bitbang in a larger app inherit the polite default.
+    @adapter.on_preempted
+    def _on_preempt():
+        print("BitBang: another instance with the same UID has taken over. Exiting.")
+        sys.exit(2)
+
     adapter.run()
 
 

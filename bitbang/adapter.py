@@ -90,6 +90,20 @@ BANNER = r"""   ___  _ __  ___
                           /___/ """
 
 
+def _default_on_preempted():
+    """Library-default OnPreempted callback. Logs a single line and returns.
+    The reconnect-storm prevention (BitBangBase._preempted flag check in
+    connect) is separate and not configurable: without it, two instances
+    racing for the same UID would ping-pong forever. This callback is the
+    library's polite default for letting the operator know what happened.
+
+    CLI scripts (bitbang-fileshare, bitbang-webcam, __main__) override
+    this with a print-and-exit closure; library users typically log into
+    their own logger and/or trigger an application-level reset.
+    """
+    print("Another instance with the same UID has registered. Stopping reconnect.")
+
+
 def add_bitbang_args(parser):
     """Add common BitBang CLI arguments to an argparse parser."""
     import argparse
@@ -191,6 +205,14 @@ class BitBangBase:
         # None, in which case handle_request falls back to its own print().
         self._on_connection_request = None
 
+        # Preempt state and callback. _preempted is the storm-breaker: when
+        # True, the signaling loop stops reconnecting. One-way transition,
+        # never cleared. _on_preempted is the user-replaceable callback;
+        # defaults to a library-supplied function that logs one line.
+        # Hosts override via the @on_preempted decorator below.
+        self._preempted = False
+        self._on_preempted = _default_on_preempted
+
     def on_connection_request(self, fn):
         """Decorator: register a callback fired on each new browser connection.
 
@@ -207,6 +229,30 @@ class BitBangBase:
         not abort the connection.
         """
         self._on_connection_request = fn
+        return fn
+
+    def on_preempted(self, fn):
+        """Decorator: register a callback fired when another instance has
+        registered with this UID and the signaling server has taken our
+        slot. The library has already set _preempted = True and will exit
+        the signaling loop by the time this fires — the host application
+        decides what additional action to take (log, alert, exit, retry
+        with --ephemeral, etc.).
+
+            @adapter.on_preempted
+            def handle():
+                logger.warning("BitBang preempted")
+                sys.exit(2)
+
+        Signature: ``fn()``. No arguments — there's nothing useful to
+        report beyond "this happened." Exceptions raised by the callback
+        are caught and printed; the signaling loop exits regardless.
+
+        Replaces the library default, which logs a single line. To
+        suppress output entirely, assign ``adapter._on_preempted =
+        lambda: None``.
+        """
+        self._on_preempted = fn
         return fn
 
     def pin_callback(self, fn):
@@ -333,6 +379,14 @@ class BitBangBase:
                 print(f"Unexpected error: {e}")
                 await asyncio.sleep(3)
 
+            # Storm-breaker: if the signaling server told us another
+            # instance has this UID, don't reconnect — that would just
+            # kick them out and trigger their reconnect, ad infinitum.
+            # The OnPreempted callback has already fired inside
+            # _message_loop; nothing more to do here beyond exiting.
+            if self._preempted:
+                return
+
     async def _register(self, ws):
         """Send registration and wait for the server to acknowledge. Returns True on success.
 
@@ -387,6 +441,20 @@ class BitBangBase:
         while True:
             data = json.loads(await ws.recv())
             msg_type = data.get('type')
+
+            # Intercept the typed preempted error before dispatching.
+            # We don't surface it to other handlers because it's a
+            # signaling-layer concern — fire the user callback (with the
+            # default catching uncaught exceptions so a buggy callback
+            # can't strand us in a bad state), set the storm-breaker
+            # flag, and let connect() exit cleanly.
+            if msg_type == 'error' and data.get('message') == 'preempted':
+                self._preempted = True
+                try:
+                    self._on_preempted()
+                except Exception as cb_err:
+                    print(f"on_preempted callback raised: {cb_err}")
+                return
 
             if msg_type == 'request':
                 if self.debug:
