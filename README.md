@@ -202,6 +202,10 @@ The signaling server source is available [here](https://github.com/richlegrand/b
 
 After the P2P connection is established, the signaling server is not involved. We are providing a signaling server for testing, etc. at https://bitba.ng. It mostly brokers connections, so it doesn't need many resources. 
 
+## Code pairing
+
+BitBang also supports a short 6-digit "pairing code" for sharing access without copying a long URL — the connector enters the code, both sides verify a Short Authentication String (SAS) out of band, and credentials are delivered over the encrypted data channel. This is currently implemented in [bitbang-cli](https://github.com/richlegrand/bitbang-cli) only; Python support for code pairing is on the to-do list. The protocol design lives in the [BitBang project](https://github.com/richlegrand/bitbang/blob/main/code_exchange.md) (`code_exchange.md`).
+
 ## Security
 
 WebRTC mandates encryption:

@@ -37,6 +37,7 @@ Example usage (FastAPI):
 
 import asyncio
 import base64
+import hashlib
 import hmac
 import io
 import json
@@ -547,6 +548,15 @@ class BitBangBase:
                 # browser delivers the encrypted payload riding on the SDP.
                 'verify_nonce': None,
                 'verify_failed': False,
+                # SECURITY: SWSP authentication gate. Flipped True only
+                # after a successful stream-0 connect (no PIN required)
+                # or stream-0 auth (correct PIN). Until then, no non-zero
+                # stream may be dispatched to a handler — otherwise an
+                # attacker who has the DTLS channel up can skip the
+                # control handshake and reach the application directly.
+                # Reported by jacopotediosi against OctoPrint-BitBang
+                # 0.2.7 (plugins.octoprint.org PR #1443).
+                'authenticated': False,
             }
 
             @channel.on("open")
@@ -926,6 +936,12 @@ class BitBangBase:
             if self._pin_required(path):
                 self._send_control(channel, {"type": "auth_required"})
             else:
+                # No PIN required: the handshake is complete with the
+                # connect message. Mark the peer authenticated BEFORE
+                # ready goes out so a fast client that pipelines a SYN
+                # right after seeing ready doesn't race the flag.
+                if client_id and client_id in self.peers:
+                    self.peers[client_id]['authenticated'] = True
                 self._send_ready(channel)
 
         elif msg.get('type') == 'auth':
@@ -936,9 +952,25 @@ class BitBangBase:
 
             if self._verify_pin(path, pin):
                 print("PIN auth succeeded")
+                # Set authenticated BEFORE sending the result, same
+                # ordering reason as above.
+                if client_id and client_id in self.peers:
+                    self.peers[client_id]['authenticated'] = True
                 self._send_control(channel, {"type": "auth_result", "success": True}, fin=True)
+                # The browser's handshake loop waits for `ready` after a
+                # successful auth_result — without this it hangs. (Same
+                # latent bug we fixed earlier on the Go side; reaching
+                # parity here.)
+                self._send_ready(channel)
             else:
                 print("PIN auth failed")
+                # Same intentional pause as the Go side's pinFailDelay:
+                # bounds an attacker's rate without meaningfully hurting
+                # a human who mistyped. asyncio.sleep would be cleaner
+                # in the async path, but _handle_control_message is sync
+                # and this code path is rare enough that blocking the
+                # event loop briefly is acceptable.
+                time.sleep(2.0)
                 self._send_control(channel, {"type": "auth_result", "success": False}, fin=True)
 
     def _pin_required(self, path='/'):
@@ -948,10 +980,33 @@ class BitBangBase:
         return self.pin is not None
 
     def _verify_pin(self, path, pin):
-        """Verify PIN. Returns True if valid."""
+        """Verify PIN. Returns True if valid.
+
+        Constant-time comparison using hmac.compare_digest over fixed-
+        length SHA-256 digests of both sides. This closes two side
+        channels that the previous `pin == self.pin` had:
+
+        * timing leak from Python's `==` short-circuiting on first
+          mismatched character;
+        * length leak from comparing strings of unequal length
+          (compare_digest returns False instantly when lengths differ).
+
+        Combined with the 2-second pinFailDelay-style sleep on failed
+        auth (see _handle_control_message), this bounds an attacker's
+        effective rate at ~30 attempts/minute, sequentially, with no
+        timing side channel.
+
+        The pin_callback path is user-supplied code and so out of our
+        hands — but anyone implementing a custom checker that does
+        plain `==` is welcome to switch to hmac.compare_digest too.
+        """
         if self._pin_callback:
             return self._pin_callback(path, pin)
-        return self.pin is not None and pin == self.pin
+        if self.pin is None:
+            return False
+        want = hashlib.sha256(self.pin.encode('utf-8')).digest()
+        got = hashlib.sha256(pin.encode('utf-8')).digest()
+        return hmac.compare_digest(want, got)
 
     async def handle_datachannel_message(self, channel, message, client_id):
         """Handle SWSP binary request from browser and send SWSP response."""
@@ -975,6 +1030,20 @@ class BitBangBase:
             peer = self.peers.get(client_id)
             if not peer:
                 return
+
+            # SECURITY: gate every non-stream-0 frame on a completed
+            # control handshake. Without this check, an attacker who
+            # has the DTLS channel up (post bidirectional-verify) but
+            # who has not sent `connect` / `auth` can open application
+            # streams directly — bypassing PIN. The matching Go fix
+            # lives in internal/session/session.go handleSYN/handleBody.
+            if not peer.get('authenticated', False):
+                print(f"Rejecting frame on stream {stream_id}: session not authenticated "
+                      f"(auth bypass attempt? client={client_id})")
+                if flags & FLAG_SYN:
+                    self._send_error_response(channel, stream_id, "unauthenticated")
+                return
+
             pending = peer['pending_requests']
 
             # Check if this is a WebSocket stream (DAT/FIN for active WS)
