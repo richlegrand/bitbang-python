@@ -62,6 +62,12 @@ FLAG_FIN = 0x0004
 FLAG_DAT = 0x0000
 FLAG_MORE = 0x0002  # non-final fragment of a chunked WS message
 
+# Brute-force bounds, mirroring the Go proxy (internal/session/control.go and
+# cmd/bitbang/serve.go). A connector must already hold the access code to open
+# a data channel at all, but these cap how fast PINs can be guessed.
+MAX_AUTH_FAILS = 3      # wrong PINs tolerated per session before its DC closes
+MAX_UNAUTH_PEERS = 10   # concurrent pre-auth sessions allowed at once
+
 
 # Bidirectional-verify helpers --------------------------------------------
 #
@@ -521,6 +527,13 @@ class BitBangBase:
                 if self.debug:
                     print(f"Cleaned up previous connection for {client_id}")
 
+            # Cap concurrent un-authenticated sessions to blunt parallel PIN
+            # brute-force (mirrors the Go listener).
+            if self._count_unauth_live() >= MAX_UNAUTH_PEERS:
+                print(f"Rejecting connection from {client_id}: too many pending "
+                      f"sessions ({MAX_UNAUTH_PEERS})")
+                return
+
             # Create peer connection with ICE servers from signaling server
             ice_servers = message.get('ice_servers') or []
             self._last_ice_servers = ice_servers
@@ -557,6 +570,10 @@ class BitBangBase:
                 # Reported by jacopotediosi against OctoPrint-BitBang
                 # 0.2.7 (plugins.octoprint.org PR #1443).
                 'authenticated': False,
+                # Wrong-PIN counter; the session's DC is closed after
+                # MAX_AUTH_FAILS to force a fresh handshake (rate-limits
+                # brute-force).
+                'auth_fails': 0,
             }
 
             @channel.on("open")
@@ -963,7 +980,11 @@ class BitBangBase:
                 # parity here.)
                 self._send_ready(channel)
             else:
-                print("PIN auth failed")
+                fails = 0
+                if client_id and client_id in self.peers:
+                    self.peers[client_id]['auth_fails'] += 1
+                    fails = self.peers[client_id]['auth_fails']
+                print(f"PIN auth failed ({fails}/{MAX_AUTH_FAILS})")
                 # Same intentional pause as the Go side's pinFailDelay:
                 # bounds an attacker's rate without meaningfully hurting
                 # a human who mistyped. asyncio.sleep would be cleaner
@@ -972,6 +993,23 @@ class BitBangBase:
                 # event loop briefly is acceptable.
                 time.sleep(2.0)
                 self._send_control(channel, {"type": "auth_result", "success": False}, fin=True)
+                # After too many wrong PINs, tear down the channel; further
+                # guesses then require a brand-new WebRTC handshake.
+                if fails >= MAX_AUTH_FAILS and client_id in self.peers:
+                    print("Too many failed PIN attempts — closing connection")
+                    asyncio.ensure_future(self.peers[client_id]['pc'].close())
+
+    def _count_unauth_live(self):
+        """Number of currently-live sessions that haven't authenticated.
+        Counts only peers whose connection is still up, so a dropped session
+        frees its slot even though closed peers may linger in self.peers
+        (they're only reaped on reconnect / adapter close)."""
+        return sum(
+            1 for p in self.peers.values()
+            if not p.get('authenticated')
+            and p.get('pc') is not None
+            and p['pc'].connectionState not in ('closed', 'failed')
+        )
 
     def _pin_required(self, path='/'):
         """Check if PIN auth is required for this path."""
