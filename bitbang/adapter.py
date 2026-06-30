@@ -68,6 +68,14 @@ FLAG_MORE = 0x0002  # non-final fragment of a chunked WS message
 MAX_AUTH_FAILS = 3      # wrong PINs tolerated per session before its DC closes
 MAX_UNAUTH_PEERS = 10   # concurrent pre-auth sessions allowed at once
 
+# Direct-bias grace: how long the device (the ICE-controlling agent, which in
+# aioice uses aggressive nomination) withholds the connector's relay candidate
+# from aioice so a direct pair can win even on a slow device. Generous on
+# purpose — TURN bandwidth is the scarce resource and a slower relay fallback
+# is acceptable. Mirrors relayAcceptanceMinWait on the Go listener. See
+# bitbang/CONVENTIONS.md "Favoring direct on slow & embedded devices".
+RELAY_GRACE = 8.0  # seconds
+
 
 # Bidirectional-verify helpers --------------------------------------------
 #
@@ -482,14 +490,31 @@ class BitBangBase:
                 print(f"Signaling error: {data.get('message')}")
 
     def _add_ice_candidate(self, data):
-        """Parse and add a remote ICE candidate to the peer connection."""
+        """Parse a remote ICE candidate and feed it to the peer connection.
+
+        Direct-bias gate (CONVENTIONS.md "Favoring direct on slow & embedded
+        devices"): aioice is the ICE-controlling agent here and uses aggressive
+        nomination — the first candidate pair to validate wins, with no relay
+        grace. A relay pair validates fast and reliably, so on a slow device it
+        would beat a still-punching direct pair. So we control *what aioice
+        sees*: host/srflx candidates are added immediately, but a relay
+        candidate is buffered and only added after RELAY_GRACE if no direct
+        pair has connected by then (on_ice_state drops the buffer if it has).
+
+        Forced-relay (?relay/--relay) short-circuit: in normal trickle the
+        connector's host/srflx always arrive before its relay candidate (they
+        need no TURN Allocate, and the connector even delays relay), so a relay
+        candidate arriving with no direct candidate seen yet means relay-only
+        gathering — admit it immediately rather than stalling for the grace.
+        """
         client_id = data.get('client_id')
-        if client_id not in self.peers:
+        peer = self.peers.get(client_id)
+        if peer is None:
             if self.debug:
                 print(f"Unknown client_id in candidate: {client_id}")
             return
 
-        pc = self.peers[client_id]['pc']
+        pc = peer['pc']
         candidate_info = data['candidate']
         cand_str = candidate_info['candidate']
         if cand_str.startswith('candidate:'):
@@ -499,9 +524,46 @@ class BitBangBase:
         candidate.sdpMid = candidate_info['sdpMid']
         candidate.sdpMLineIndex = candidate_info['sdpMLineIndex']
 
+        # Gate relay candidates, but only once a direct candidate has been seen
+        # (otherwise it's relay-only gathering — admit immediately).
+        if candidate.type == 'relay' and peer['saw_direct'] and not peer['relay_resolved']:
+            peer['buffered_relay'].append(candidate)
+            if peer['relay_gate_task'] is None:
+                peer['relay_gate_task'] = asyncio.ensure_future(self._relay_gate(peer))
+            if self.debug:
+                print(f"Buffered relay candidate for {client_id} "
+                      f"({len(peer['buffered_relay'])} held, {RELAY_GRACE}s grace)")
+            return
+
+        if candidate.type != 'relay':
+            peer['saw_direct'] = True
+
         asyncio.ensure_future(pc.addIceCandidate(candidate))
         if self.debug:
-            print(f"Added remote candidate for {client_id}")
+            print(f"Added remote {candidate.type} candidate for {client_id}")
+
+    async def _relay_gate(self, peer):
+        """Wait out the direct-bias grace, then release any buffered relay
+        candidates if the peer hasn't already connected on a direct pair."""
+        try:
+            await asyncio.sleep(RELAY_GRACE)
+        except asyncio.CancelledError:
+            return
+        self._release_relay(peer, reason="grace expired")
+
+    def _release_relay(self, peer, reason):
+        """Feed buffered relay candidates to aioice (idempotent). Operates on
+        the captured peer dict so a stale task can't touch a newer session."""
+        if peer.get('relay_resolved'):
+            return
+        peer['relay_resolved'] = True
+        buffered = peer['buffered_relay']
+        peer['buffered_relay'] = []
+        if self.debug and buffered:
+            print(f"Releasing {len(buffered)} relay candidate(s) ({reason})")
+        pc = peer['pc']
+        for candidate in buffered:
+            asyncio.ensure_future(pc.addIceCandidate(candidate))
 
     async def handle_request(self, ws, message):
         """Handle connection request from browser - create offer and send it."""
@@ -522,6 +584,9 @@ class BitBangBase:
 
             # Clean up previous connection for this client if any
             if client_id in self.peers:
+                old_task = self.peers[client_id].get('relay_gate_task')
+                if old_task is not None and not old_task.done():
+                    old_task.cancel()
                 await self.peers[client_id]['pc'].close()
                 del self.peers[client_id]
                 if self.debug:
@@ -574,6 +639,13 @@ class BitBangBase:
                 # MAX_AUTH_FAILS to force a fresh handshake (rate-limits
                 # brute-force).
                 'auth_fails': 0,
+                # Direct-bias relay gate (see _add_ice_candidate): relay
+                # candidates from the connector are held here until a direct
+                # pair has had RELAY_GRACE to connect.
+                'buffered_relay': [],     # held relay candidates
+                'saw_direct': False,      # any host/srflx candidate seen yet?
+                'relay_gate_task': None,  # the grace timer task
+                'relay_resolved': False,  # relay decision final (injected or suppressed)
             }
 
             @channel.on("open")
@@ -605,6 +677,23 @@ class BitBangBase:
             @channel.on("message")
             async def on_message(msg, cid=client_id):
                 await self.handle_datachannel_message(channel, msg, cid)
+
+            @pc.on("iceconnectionstatechange")
+            def on_ice_state(cid=client_id, this_pc=pc):
+                # Once ICE has a working pair, the relay decision is final: if
+                # we got here before the grace fired, we connected on a direct
+                # pair (the only candidates aioice was given), so the buffered
+                # relay candidates are dropped, never fed to aioice.
+                if this_pc.iceConnectionState not in ("connected", "completed"):
+                    return
+                peer = self.peers.get(cid)
+                if peer is None or peer.get('pc') is not this_pc:
+                    return
+                peer['relay_resolved'] = True
+                peer['buffered_relay'] = []
+                task = peer.get('relay_gate_task')
+                if task is not None and not task.done():
+                    task.cancel()
 
             # Create and send offer
             await self._create_and_send_offer(ws, pc, client_id)
