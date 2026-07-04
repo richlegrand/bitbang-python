@@ -6,6 +6,7 @@ provides their URLs to tests, and tears them down after the session.
 
 import pytest
 import subprocess
+import threading
 import time
 import sys
 import os
@@ -67,6 +68,21 @@ def _start_device(script, *extra_args):
         )
 
     print(f'[device] URL: {url}')
+
+    # TEMP-DEBUG (test_pin_callback_protected_path diagnosis): after
+    # startup, spawn a background thread that drains the subprocess pipe
+    # and echoes each line to the parent's stdout. Without this the pipe
+    # buffer fills up (or debug prints simply never appear in pytest's
+    # captured output), and post-startup device logs are invisible in
+    # CI failure output. Remove once the underlying bug is identified.
+    def _drain():
+        try:
+            for line in proc.stdout:
+                print(f'[device] {line.rstrip()}', flush=True)
+        except Exception:
+            pass
+    threading.Thread(target=_drain, daemon=True).start()
+
     return proc, url
 
 
