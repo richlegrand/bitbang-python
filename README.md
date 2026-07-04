@@ -107,7 +107,7 @@ adapter = BitBangWSGI(app,
     ephemeral=False,           # Use a temporary identity (not saved to disk)
     identity_path=None,        # Use a specific identity file
     regenerate=False,          # Delete and regenerate identity
-    debug=False,               # Verbose logging + browser debug UI (?debug)
+    debug=False,               # Verbose logging + browser debug UI (!debug)
     pin=None,                  # PIN string to protect access
     ice_servers=None,          # Custom TURN server config
 )
@@ -157,7 +157,7 @@ These options appear like this on the command line:
 --debug                  Enable verbose logging and browser debug UI
 ```
 
-When `--debug` is enabled, the printed URL includes `?debug`, which activates a browser-side debug UI showing connection steps (connecting to server, waiting for device, establishing peer connection). Without it, the browser shows a simple "Loading..." while connecting.
+When `--debug` is enabled, the printed URL includes `!debug` in the fragment, which activates a browser-side debug UI showing connection steps (connecting to server, waiting for device, establishing peer connection). Without it, the browser shows a simple "Loading..." while connecting.
 
 Each app gets its own persistent RSA keypair and URL, stored in `~/.bitbang/<program_name>/identity.pem`. This means the URL for each BitBang program stays the same across restarts. Use `--regenerate` to get a new URL, or `--ephemeral` for a one-time session.
 

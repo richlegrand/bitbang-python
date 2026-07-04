@@ -297,18 +297,20 @@ class BitBangBase:
 
         Single source of truth for the URL — consumers (plugins, wrappers,
         downstream apps) should read this rather than reconstruct it from
-        ``server`` / ``uid`` / ``code``, since the exact shape (query
-        params, fragment, etc.) is the protocol's concern, not theirs.
+        ``server`` / ``uid`` / ``code``, since the exact shape (fragment
+        placement, flag syntax, etc.) is the protocol's concern, not
+        theirs.
 
-        Layout: ``https://<server>/<uid>[?debug]#<code>``. The fragment
-        carries the 64-bit access code, which browsers never send to the
-        signaling server. ``?debug`` (when ``self.debug`` is set) opens
+        Layout: ``https://<server>/<uid>#<code>[!<flags>]``. The fragment
+        carries the access code and any Bitbang flags; the signaling
+        server never sees any of it (browsers don't transmit fragments).
+        Grammar and flag list live in ``bitbang/CONVENTIONS.md``. When
+        ``self.debug`` is set the URL includes ``!debug``, which opens
         the bootstrap UI in step-by-step mode.
         """
-        url = f"https://{self.server}/{self.uid}"
+        url = f"https://{self.server}/{self.uid}#{self.code}"
         if self.debug:
-            url += "?debug"
-        url += f"#{self.code}"
+            url += "!debug"
         return url
 
     def setup_peer_connection(self, pc, client_id):
@@ -501,7 +503,7 @@ class BitBangBase:
         candidate is buffered and only added after RELAY_GRACE if no direct
         pair has connected by then (on_ice_state drops the buffer if it has).
 
-        Forced-relay (?relay/--relay) short-circuit: in normal trickle the
+        Forced-relay (!relay/--relay) short-circuit: in normal trickle the
         connector's host/srflx always arrive before its relay candidate (they
         need no TURN Allocate, and the connector even delays relay), so a relay
         candidate arriving with no direct candidate seen yet means relay-only
