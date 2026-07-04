@@ -4,15 +4,16 @@ from urllib.parse import urlparse, urlunparse
 
 
 def _with_path(url: str, path: str) -> str:
-    """Append `path` to `url`, preserving the fragment.
+    """Append a device path to `url` inside the fragment.
 
-    `url` is the device URL with a `#code` fragment. Naive string
-    concatenation (``url + '/x'``) would push the path inside the
-    fragment, breaking bidirectional verify. This splices the path in
-    before the fragment.
+    Under the current URL scheme (see bitbang/CONVENTIONS.md), the device
+    path lives *in* the fragment, appended after ``<code>[!<flags>]``.
+    Simple string concatenation onto the fragment works whether or not
+    a ``!<flag-list>`` section is present, because the flag section
+    is delimited by exactly this character (``/``).
     """
     p = urlparse(url)
-    return urlunparse(p._replace(path=p.path + path))
+    return urlunparse(p._replace(fragment=p.fragment + path))
 
 
 def test_pin_prompt_appears(pin_device_url, playwright):
