@@ -1041,15 +1041,7 @@ class BitBangBase:
             if client_id and client_id in self.peers:
                 self.peers[client_id]['connect_path'] = path
 
-            # TEMP-DEBUG (test_pin_callback_protected_path diagnosis):
-            # Log the incoming connect path and the _pin_required decision
-            # so the failing CI test's captured device output shows exactly
-            # what the device received and how it interpreted it. Remove
-            # once the underlying bug is identified.
-            _pin_req = self._pin_required(path)
-            print(f'[TEMP-DEBUG] connect path={path!r} _pin_required={_pin_req}', flush=True)
-
-            if _pin_req:
+            if self._pin_required(path):
                 self._send_control(channel, {"type": "auth_required"})
             else:
                 # No PIN required: the handshake is complete with the

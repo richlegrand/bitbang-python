@@ -69,12 +69,14 @@ def _start_device(script, *extra_args):
 
     print(f'[device] URL: {url}')
 
-    # TEMP-DEBUG (test_pin_callback_protected_path diagnosis): after
-    # startup, spawn a background thread that drains the subprocess pipe
-    # and echoes each line to the parent's stdout. Without this the pipe
-    # buffer fills up (or debug prints simply never appear in pytest's
-    # captured output), and post-startup device logs are invisible in
-    # CI failure output. Remove once the underlying bug is identified.
+    # Drain the subprocess pipe in the background for the rest of the
+    # session. Without this, the OS-level pipe buffer (~64 KB on Linux)
+    # fills up during the test run and the *next* print() inside the
+    # device blocks the asyncio event loop -- which stalls control-plane
+    # replies and shows up as intermittent timeouts in later tests.
+    # Root cause of the July 2026 test_pin_callback_protected_path
+    # failure; keeping this drainer prevents recurrence. Daemon thread
+    # dies with the parent process, no shutdown coordination needed.
     def _drain():
         try:
             for line in proc.stdout:

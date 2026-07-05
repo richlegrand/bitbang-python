@@ -24,11 +24,7 @@ jobs:
           playwright install --with-deps chromium
 
       - name: Run tests
-        # -rP shows captured stdout for passing tests -- temporarily on so
-        # the [TEMP-DEBUG] device-side log line from test_pin_callback_*
-        # (see conftest.py and bitbang/adapter.py) is visible in CI output.
-        # Revert to plain -v once the diagnosis is confirmed.
-        run: python -m pytest tests/ -v -rP --screenshot=only-on-failure --output=tests/screenshots
+        run: python -m pytest tests/ -v --screenshot=only-on-failure --output=tests/screenshots
 
       - name: Upload screenshots on failure
         if: failure()
