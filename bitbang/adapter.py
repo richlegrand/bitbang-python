@@ -1014,11 +1014,19 @@ class BitBangBase:
     SWSP_CAPS = ['http', 'websocket']
 
     def _send_ready(self, channel):
-        """Send the SWSP v3 ready handshake (caps + server_version)."""
+        """Send the SWSP v3 ready handshake (caps + server_version + routing).
+
+        `routing` tells the browser bootstrap how to interpret the first
+        segment of the device path in the URL fragment. For a WSGI/ASGI
+        adapter (this class) the device *is* the app; the entire path
+        belongs to the app's routes, and there is no target segment.
+        Bitbangproxy declares "target-prefix" instead.
+        """
         self._send_control(channel, {
             "type": "ready",
             "caps": list(self.SWSP_CAPS),
             "server_version": self.SWSP_VERSION,
+            "routing": "direct",
         }, fin=True)
 
     def _handle_control_message(self, channel, payload, client_id=None):
