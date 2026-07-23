@@ -1,104 +1,81 @@
-# BitBang Python
+# bitbang-python
 
-![Tests](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml/badge.svg)
-![PyPI](https://img.shields.io/pypi/v/bitbang)
-![Python](https://img.shields.io/pypi/pyversions/bitbang)
+**Turns your local Python web app into a URL you can open from anywhere.**
+
+`bitbang` wraps a WSGI or ASGI app (Flask, FastAPI, Quart) and prints a URL and QR code. Open the URL in any browser and you're connected to the app -- peer-to-peer, end-to-end encrypted, with no account, no port forwarding. 
+
+This is the Python implementation of [BitBang](https://github.com/richlegrand/bitbang). For remote access to a whole machine (shell, files, proxy) without writing code, see [bitbang-cli](https://github.com/richlegrand/bitbang-cli).
+
+[![Tests](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml/badge.svg)](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/bitbang)](https://pypi.org/project/bitbang/)
+[![Python](https://img.shields.io/pypi/pyversions/bitbang)](https://pypi.org/project/bitbang/)
 ![License](https://img.shields.io/github/license/richlegrand/bitbang-python)
 
-Access your local web server from anywhere -- no account, no subscription, no cloud in the middle. BitBang uses WebRTC to connect browsers directly to your device, peer-to-peer.
+## Install
 
-This is part of the [BitBang project](https://github.com/richlegrand/bitbang). 
-
-
-## Quick demo
-
-Install:
-```bash
+```
 pip install bitbang              # Linux / macOS
-python -m pip install bitbang    # Windows (or any platform) 
+python -m pip install bitbang    # Windows (or any platform)
 ```
 
-Quick test:
-```bash
+## Quick test
+
+```
 bitbang-fileshare ~/Downloads            # Linux / macOS
 python -m bitbang fileshare ~/Downloads  # Windows (or any platform)
 ```
-![bitbang-fileshare](https://raw.githubusercontent.com/richlegrand/bitbang-python/refs/heads/main/assets/bitbang_screen.png)
 
-Scan the QR code, which contains the BitBang URL. Anyone with the URL can browse and download files directly from your machine, or they can upload files to the specified directory. Note, you can verify it works outside your local network, by scanning the QR code from a phone on cellular (turn off WiFi).
+This prints a URL and QR code. Anyone with the link can browse and download files directly from your machine, or upload files to the shared directory. To verify it works outside your local network, scan the QR code from a phone on cellular (turn off WiFi).
 
-## Flask / FastAPI integration (or any WSGI / ASGI web framework)
+## Flask / FastAPI integration (or any WSGI / ASGI framework)
 
-Take an existing Flask or FastAPI app and add remote access. 
-
+Take an existing app and give it a URL:
 
 ```python
-# Flask 
+# Flask
 from bitbang import BitBangWSGI
-...
+
 app = Flask(__name__)
 adapter = BitBangWSGI(app)
 adapter.run()  # Prints QR code and public URL
 ```
 
 ```python
-# FastAPI 
+# FastAPI
 from bitbang import BitBangASGI
-...
+
 app = FastAPI()
 adapter = BitBangASGI(app)
-adapter.run() # Prints QR code and public URL
+adapter.run()  # Prints QR code and public URL
 ```
 
-## Comparison
+The `examples/` directory contains a minimal version of each:
 
-| | ngrok | Cloudflare Tunnel | Tailscale | BitBang |
-|---|---|---|---|---|
-| Account required | Yes | Yes | Yes | No |
-| Free tunnels | 1 | Unlimited | Unlimited | Unlimited |
-| Data path | Their servers | Their servers | P2P | P2P |
-| Viewer needs install | No | No | Yes | No |
-| Configuration | CLI flags | Config file + DNS | Dashboard | None |
+```
+cd examples/simple_fastapi && python3 app.py
+cd examples/simple_flask && python3 app.py
+```
 
-BitBang's data path is direct between peers. The signaling server brokers the initial connection, then steps aside.
+## Bundled apps
 
----
+**Fileshare** shares local files without uploading them to a third-party service. Files transfer directly from your machine to the recipient, and the recipient can upload files back. It's also intended as an example of a simple BitBang application -- it's a straightforward Flask app.
 
-## Fileshare
-
-Fileshare allows you to easily/quickly share local files without uploading them to a third-party service. It's intended to be an example of a simple (yet useful!) BitBang application. It's just a straightforward Flask app.
-
-```bash
+```
 bitbang-fileshare big_sourcetree.tar.gz       # Share a single file
 bitbang-fileshare ~/Documents/project         # Share a directory (uploads enabled)
 python -m bitbang fileshare c:\ide\files      # Windows
 ```
 
-Files transfer directly from your machine to the recipient. The recipient can also upload files to your machine.
+**Webcam** streams video from your webcam to a browser over WebRTC media channels -- an easy-to-set-up monitoring camera using a laptop, for example.
 
-## Webcam
-
-The Webcam app streams video from your webcam to a browser using WebRTC media channels and BitBang. It can be used as an easy-to-setup monitoring/security camera using your laptop, for example.
-
-```bash
+```
 bitbang-webcam                  # Linux / macOS
 python -m bitbang webcam        # Windows (or any platform)
 ```
 
-## Examples
-
-The `examples/` directory contains two simple examples which show how to integrate BitBang into your current Python web frameworks:
-
-```bash
-cd examples/simple_fastapi && python3 app.py
-cd examples/simple_flask && python3 app.py
-```
-
----
-
 ## Python API
 
-These options are available from the BitBang constructor (same options for BitBangASGI):
+These options are available from the `BitBangWSGI` constructor (same options for `BitBangASGI`):
 
 ```python
 adapter = BitBangWSGI(app,
@@ -107,30 +84,14 @@ adapter = BitBangWSGI(app,
     ephemeral=False,           # Use a temporary identity (not saved to disk)
     identity_path=None,        # Use a specific identity file
     regenerate=False,          # Delete and regenerate identity
-    debug=False,               # Verbose logging + browser debug UI (!debug)
+    debug=False,               # Verbose logging + browser debug UI (?debug)
     pin=None,                  # PIN string to protect access
+    pin_callback=None,         # Function(path, pin) -> bool for custom auth
     ice_servers=None,          # Custom TURN server config
 )
 ```
 
-For per-path custom auth, register a PIN checker as a decorator:
-
-```python
-adapter = BitBangWSGI(app)
-
-@adapter.pin_callback
-def check(path, pin):
-    """Return True if `pin` (may be '') is acceptable for `path`."""
-    if path.startswith('/admin'):
-        return pin == '1234'
-    return True   # everything else is open
-```
-
-The decorator takes precedence over the simple ``pin=`` arg. Called once
-with ``pin=''`` to ask "is a PIN required for this path?", then with the
-entered PIN to validate.
-
-If your app uses argparse, `add_bitbang_args` and `bitbang_kwargs` can wire up the standard CLI flags for you:
+If your app uses argparse, `add_bitbang_args` and `bitbang_kwargs` wire up the standard CLI flags:
 
 ```python
 from bitbang.adapter import BitBangWSGI, add_bitbang_args, bitbang_kwargs
@@ -143,13 +104,13 @@ args = parser.parse_args()
 adapter = BitBangWSGI(app, **bitbang_kwargs(args, program_name='myapp'))
 ```
 
-These options appear like this on the command line:
+These options appear on the command line as:
 
 ```
 --ephemeral              Use a temporary identity
 --identity PATH          Use a specific identity file
 --regenerate             Delete and regenerate identity
---server HOST            Signaling server hostname 
+--server HOST            Signaling server hostname
 --turn-url URL           TURN server URL (e.g. turn:myserver.com:3478)
 --turn-user USER         TURN server username
 --turn-credential PASS   TURN server credential
@@ -157,71 +118,28 @@ These options appear like this on the command line:
 --debug                  Enable verbose logging and browser debug UI
 ```
 
-When `--debug` is enabled, the printed URL includes `!debug` in the fragment, which activates a browser-side debug UI showing connection steps (connecting to server, waiting for device, establishing peer connection). Without it, the browser shows a simple "Loading..." while connecting.
+With `--debug`, the printed URL includes `?debug`, which activates a browser-side debug UI showing connection steps. Without it, the browser shows a simple "Loading..." while connecting.
 
-Each app gets its own persistent RSA keypair and URL, stored in `~/.bitbang/<program_name>/identity.pem`. This means the URL for each BitBang program stays the same across restarts. Use `--regenerate` to get a new URL, or `--ephemeral` for a one-time session.
+### Identity and URLs
 
-`bitba.ng` provides a TURN server when a peer-to-peer connection isn't possible, but you can provide your own TURN server if you prefer via the command-line options or through the constructor by specifying `ice_servers` in browser-native WebRTC format. The defaults should work fine though, so you shouldn't need to provide these.  
+Each app gets its own persistent RSA keypair, stored at `~/.bitbang/<program_name>/identity.pem`. The public key hash becomes the app's 128-bit ID, used in its URL -- so the URL stays the same across restarts. Use `--regenerate` for a new URL, or `--ephemeral` for a one-time session.
 
----
+### TURN
 
-## Background
-
-The Internet is often thought of as a fully connected network -- every machine is accessible from every other machine. But there are rules governing accessibility on the Internet... 
-
-### Rules of Internet Accessibility
-
-1. Machines on the Internet are accessible by other machines on the Internet -- and by machines on your local network.
-2. Machines on your local network are only accessible by other machines on your local network.
-
-Because of rule 2, machines on your local network aren't reachable from outside -- nor are the resources they hold: files, cameras, sensors, compute, or the web app you're currently developing. Cloud services exist to fill this gap: Dropbox for files, AWS IoT for sensors, Tailscale for compute, and ngrok for web apps -- among others. These services apply rule 1, but each comes with the friction of account creation, fees, and your data living on someone else's server.
-
-BitBang connects a browser directly to any machine on your local network, from anywhere on the Internet. No cloud intermediary, no account, no third party in the middle. It uses a novel application of the peer-to-peer technology WebRTC. 
-
-### WebRTC?
-
-WebRTC is the behind-the-scenes technology that makes Zoom and Google Meet video conferencing possible. WebRTC offers the highest bandwidth and lowest latency possible, which is good when you're streaming live video, or practically anything else. It's mature, well-tested, and has ubiquitous support across all browsers. In addition to delivering low-latency media, it can also deliver raw data over "data channels", which is what BitBang uses for proxying HTML and WebSockets.
-
+When a direct peer-to-peer connection isn't possible, `bitba.ng` provides a TURN relay, which carries only ciphertext. You can supply your own TURN server via the command-line options or the `ice_servers` constructor argument (browser-native WebRTC format). The defaults work fine for most setups.
 
 ## How it works
 
-Browsers normally connect to web servers over a TCP socket. BitBang replaces this with a WebRTC data channel.
+Browsers normally connect to web servers over a TCP socket. BitBang replaces this with a WebRTC data channel:
 
-![BitBang Python Block Diagram](https://raw.githubusercontent.com/richlegrand/bitbang-python/refs/heads/main/assets/bitbang_python.png)
+![BitBang Python block diagram](https://raw.githubusercontent.com/richlegrand/bitbang-python/refs/heads/main/assets/bitbang_python.png)
 
-The signaling server (`bitba.ng`) brokers the WebRTC handshake, then has no further involvement and never sees application data.
-
-## Signaling server
-
-The signaling server source is available [here](https://github.com/richlegrand/bitbang-server). It:
-
-1. Serves the BitBang browser runtime
-2. Authenticates connecting devices via RSA challenge
-3. Maintains WebSocket connections to active devices
-4. Brokers ICE candidate and SDP exchange between browsers and devices
-
-After the P2P connection is established, the signaling server is not involved. We are providing a signaling server for testing, etc. at https://bitba.ng. It mostly brokers connections, so it doesn't need many resources. 
-
-## Code pairing
-
-BitBang also supports a short 6-digit "pairing code" for sharing access without copying a long URL — the connector enters the code, both sides verify a Short Authentication String (SAS) out of band, and credentials are delivered over the encrypted data channel. This is currently implemented in [bitbang-cli](https://github.com/richlegrand/bitbang-cli) only; Python support for code pairing is on the to-do list. The protocol design lives in the [BitBang project](https://github.com/richlegrand/bitbang/blob/main/code_exchange.md) (`code_exchange.md`).
-
-## Security
-
-WebRTC mandates encryption:
-
-- **Data channels**: DTLS 1.2+
-- **Media streams**: SRTP 
-- **Signaling**: HTTPS and WSS
-
-Furthermore, each BitBang "device" generates an RSA keypair. The public key hash becomes its unique 128-bit ID, which is used in its BitBang public URL. A 64-bit access code rides in the URL fragment (after `#`) so the signaling server — which sees the path but never the fragment — can route connections but cannot initiate them. See [SECURITY.md](https://github.com/richlegrand/bitbang-server/blob/main/SECURITY.md) for the full trustless-signaling model.
-
----
+The signaling server brokers the WebRTC handshake, then has no further involvement and never sees application data. The full story -- architecture, trust model, and origin -- is in the [BitBang project README](https://github.com/richlegrand/bitbang), the [whitepaper](https://github.com/richlegrand/bitbang/blob/main/whitepaper.md), and [Trustless Signaling](https://github.com/richlegrand/bitbang/blob/main/trustless-signaling.md).
 
 ## License
 
-MIT See [LICENSE](LICENSE).
+MIT
 
 ## Contributing
 
-Issues and PRs are welcome. 
+Issues and pull requests are welcome.

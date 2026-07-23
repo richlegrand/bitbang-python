@@ -98,11 +98,12 @@ def _extract_dtls_fingerprint(sdp: str) -> str:
     return m.group(1).upper() if m else ''
 SWSP_CHUNK_SIZE = 16384  # 16KB chunks
 
-BANNER = r"""   ___  _ __  ___
-  / _ )(_) /_/ _ )___ ____  ___ _
- / _  / / __/ _  / _ `/ _ \/ _ `/
-/____/_/\__/____/\_,_/_//_/\_, /
-                          /___/ """
+BANNER = r"""   ___         ___
+  / __\_ _    / __\
+ /__\/(_) |_ /__\// ___ ____  ___ _
+/ \/  \ |  _/ \/  \/ _ `/ _ \/ _ `/
+\_____/_|\__\_____/\_,_/_//_/\_, /
+                            /___/"""
 
 
 def _default_on_preempted():
@@ -433,7 +434,7 @@ class BitBangBase:
             url = self.url
             print(BANNER)
             from bitbang import __version__
-            print(f"v{__version__}")
+            print(f"bitbang-python v{__version__}")
             if self.debug:
                 import aiortc
                 print(f"  aiortc {aiortc.__version__}, websockets {websockets.__version__}, Python {sys.version.split()[0]}")

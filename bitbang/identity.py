@@ -308,7 +308,7 @@ def print_qr_code(url: str):
     try:
         import qrcode
         qr = qrcode.QRCode(
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
             box_size=1,
             border=1,
         )
