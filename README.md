@@ -1,15 +1,16 @@
 # bitbang-python
 
+[![Tests](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml/badge.svg)](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/bitbang)](https://pypi.org/project/bitbang/)
+[![Python](https://img.shields.io/pypi/pyversions/bitbang)](https://pypi.org/project/bitbang/)
+![License](https://img.shields.io/github/license/richlegrand/bitbang-python)
+
 **Turns your local Python web app into a URL you can open from anywhere.**
 
 `bitbang` wraps a WSGI or ASGI app (Flask, FastAPI, Quart) and prints a URL and QR code. Open the URL in any browser and you're connected to the app -- peer-to-peer, end-to-end encrypted, with no account, no port forwarding. 
 
 This is the Python implementation of [BitBang](https://github.com/richlegrand/bitbang). For remote access to a whole machine (shell, files, proxy) without writing code, see [bitbang-cli](https://github.com/richlegrand/bitbang-cli).
 
-[![Tests](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml/badge.svg)](https://github.com/richlegrand/bitbang-python/actions/workflows/tests.yml)
-[![PyPI](https://img.shields.io/pypi/v/bitbang)](https://pypi.org/project/bitbang/)
-[![Python](https://img.shields.io/pypi/pyversions/bitbang)](https://pypi.org/project/bitbang/)
-![License](https://img.shields.io/github/license/richlegrand/bitbang-python)
 
 ## Install
 
@@ -134,7 +135,7 @@ Browsers normally connect to web servers over a TCP socket. BitBang replaces thi
 
 ![BitBang Python block diagram](https://raw.githubusercontent.com/richlegrand/bitbang-python/refs/heads/main/assets/bitbang_python.png)
 
-The signaling server brokers the WebRTC handshake, then has no further involvement and never sees application data. The full story -- architecture, trust model, and origin -- is in the [BitBang project README](https://github.com/richlegrand/bitbang), the [whitepaper](https://github.com/richlegrand/bitbang/blob/main/whitepaper.md), and [Trustless Signaling](https://github.com/richlegrand/bitbang/blob/main/trustless-signaling.md).
+The signaling server brokers the WebRTC handshake, then has no further involvement and never sees application data. The full story -- architecture, trust model, and origin -- is in the [BitBang project README](https://github.com/richlegrand/bitbang), the [whitepaper](https://github.com/richlegrand/bitbang/blob/main/whitepaper.md), and [Trustless Signaling](https://github.com/richlegrand/bitbang/blob/main/trustless-signaling.md) document.
 
 ## License
 
