@@ -10,7 +10,7 @@ from .identity import (
     verify_challenge,
 )
 
-__version__ = "0.1.54"
+__version__ = "0.1.55"
 
 # SWSP protocol version sent in the register message. The signaling server
 # rejects devices below its minimum. Bump only for breaking wire changes.
