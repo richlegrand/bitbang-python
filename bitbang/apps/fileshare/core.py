@@ -33,30 +33,87 @@ def get_file_icon(filename):
     return icons.get(ext, '\U0001F4C4')
 
 
-def safe_path(base_dir, requested_path):
-    """Prevent path traversal attacks.
+def _within(path, base):
+    """True if path is base itself or strictly inside it."""
+    return path == base or path.startswith(base + os.sep)
 
-    Resolves the requested path and verifies it's within base_dir.
+
+def safe_path(base_dir, requested_path):
+    """Prevent path traversal and symlink escapes.
+
+    Resolves symlinks on both the base and the requested path, then verifies
+    the result is still inside the base.
+
+    A lexical check is not enough on its own. os.path.abspath normalizes ".."
+    but does not follow symlinks, so a link inside the share pointing outside
+    it still has a path under the base: the prefix test passes and the kernel
+    then follows the link on open. os.path.realpath is what actually resolves
+    it.
+
+    Both sides must be resolved. A share root that is itself a symlink is
+    ordinary -- macOS puts temp dirs under /var, a link to /private/var, and
+    plenty of home and NAS layouts do the same -- so comparing a resolved path
+    against an unresolved base would reject every such share.
 
     Args:
         base_dir: The root directory being shared
         requested_path: User-provided relative path
 
     Returns:
-        Absolute path if safe, None if path traversal attempted or doesn't exist
+        Resolved absolute path if safe, None if it escapes the base or does
+        not exist. The path is fully resolved, so it has no symlink components
+        left for a later open to follow somewhere else.
     """
     base = os.path.abspath(base_dir)
     requested = os.path.abspath(os.path.join(base, requested_path))
 
-    # Check that resolved path starts with base (or equals base)
-    if not requested.startswith(base + os.sep) and requested != base:
+    # Cheap lexical rejection first: catches ".." without touching the disk.
+    if not _within(requested, base):
         return None
 
-    # Check path exists
     if not os.path.exists(requested):
         return None
 
-    return requested
+    real_base = os.path.realpath(base)
+    real_path = os.path.realpath(requested)
+
+    if not _within(real_path, real_base):
+        return None
+
+    return real_path
+
+
+def visible_under(base_dir, abs_path):
+    """True if every path component between the share root and abs_path passes
+    should_show.
+
+    Hiding an entry from the listing is not a read control on its own: without
+    this, ".env" is absent from a directory listing but still served to anyone
+    who asks for it by name, and so is anything inside a hidden directory.
+    Checking the whole relative path rather than just the basename is what
+    stops ".git/config" from being reachable while ".git" is hidden.
+    """
+    real_base = os.path.realpath(os.path.abspath(base_dir))
+    try:
+        rel = os.path.relpath(abs_path, real_base)
+    except ValueError:
+        return False
+    if rel == os.curdir:
+        return True
+    for part in rel.split(os.sep):
+        if part in ('', os.curdir):
+            continue
+        if not should_show(part):
+            return False
+    return True
+
+
+def safe_visible_path(base_dir, requested_path):
+    """safe_path plus the hidden-file policy. Use this for every read."""
+    abs_path = safe_path(base_dir, requested_path)
+    if abs_path is None or not visible_under(base_dir, abs_path):
+        return None
+    return abs_path
 
 
 def should_show(name, show_hidden=False):

@@ -16,9 +16,11 @@ import mimetypes
 from flask import Flask, send_file, request, jsonify, abort, render_template
 from bitbang import BitBangWSGI
 try:
-    from .core import format_size, get_file_icon, safe_path, should_show
+    from .core import (format_size, get_file_icon, safe_path,
+                       safe_visible_path, should_show)
 except ImportError:
-    from core import format_size, get_file_icon, safe_path, should_show
+    from core import (format_size, get_file_icon, safe_path,
+                      safe_visible_path, should_show)
 
 app = Flask(__name__, template_folder="templates")
 
@@ -61,7 +63,7 @@ def list_files():
     if FILE_MODE:
         abort(404)
     rel_path = request.args.get('path', '')
-    abs_path = safe_path(BASE_PATH, rel_path)
+    abs_path = safe_visible_path(BASE_PATH, rel_path)
 
     if abs_path is None:
         abort(403)
@@ -133,7 +135,7 @@ def download():
     if FILE_MODE:
         abort(404)
     rel_path = request.args.get('path', '')
-    abs_path = safe_path(BASE_PATH, rel_path)
+    abs_path = safe_visible_path(BASE_PATH, rel_path)
 
     if abs_path is None or not os.path.isfile(abs_path):
         abort(404)
@@ -158,7 +160,7 @@ def preview():
     if FILE_MODE:
         abort(404)
     rel_path = request.args.get('path', '')
-    abs_path = safe_path(BASE_PATH, rel_path)
+    abs_path = safe_visible_path(BASE_PATH, rel_path)
 
     if abs_path is None or not os.path.isfile(abs_path):
         abort(404)
@@ -192,7 +194,7 @@ def upload():
     # Validate target directory
     rel_path = request.form.get('path', '')
     if rel_path:
-        target_dir = safe_path(BASE_PATH, rel_path)
+        target_dir = safe_visible_path(BASE_PATH, rel_path)
     else:
         target_dir = BASE_PATH
 
