@@ -68,6 +68,21 @@ FLAG_MORE = 0x0002  # non-final fragment of a chunked WS message
 MAX_AUTH_FAILS = 3      # wrong PINs tolerated per session before its DC closes
 MAX_UNAUTH_PEERS = 10   # concurrent pre-auth sessions allowed at once
 
+# Bounds on WebSocket message reassembly. A peer sending an endless run of
+# FLAG_MORE fragments and never a final chunk would otherwise grow the buffer
+# until the process dies.
+#
+# All three are needed. A per-stream cap alone just moves the attack to opening
+# more streams, so the per-session total bounds the sum, and the stream count
+# bounds how many partial messages can be held at once regardless of size.
+#
+# Generous enough that no legitimate WebSocket message should reach them: the
+# browser fragments at 32 KB, so the per-stream cap is 128 fragments of a single
+# message still in flight.
+MAX_WS_REASSEMBLY = 4 * 1024 * 1024        # bytes buffered for one stream
+MAX_WS_REASSEMBLY_TOTAL = 16 * 1024 * 1024  # bytes buffered across one session
+MAX_WS_REASSEMBLY_STREAMS = 64              # streams holding a partial message
+
 # Direct-bias grace: how long the device (the ICE-controlling agent, which in
 # aioice uses aggressive nomination) withholds the connector's relay candidate
 # from aioice so a direct pair can win even on a slow device. Generous on
@@ -956,6 +971,26 @@ class BitBangBase:
 
         asyncio.ensure_future(ws_reader())
 
+    async def _abort_ws_reassembly(self, peer, stream_id, why):
+        """Drop one stream that exceeded a reassembly bound.
+
+        Stream-local on purpose: the offending WebSocket is closed and its
+        buffer released, while every other stream on the session keeps running.
+        The peer is authenticated end to end before any SWSP traffic flows, so
+        this is a bound against a buggy or compromised client rather than an
+        expected condition -- but "expected" is not a safe assumption to build
+        an unbounded buffer on.
+        """
+        peer.get('ws_rx', {}).pop(stream_id, None)
+        ws = peer.get('ws_conns', {}).pop(stream_id, None)
+        if ws is not None:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        if self.debug:
+            print(f"WS reassembly aborted (stream={stream_id}): {why}")
+
     async def _handle_ws_frame(self, channel, stream_id, flags, payload, peer):
         """Handle a DAT or FIN frame for an active WebSocket stream."""
         ws = peer.get('ws_conns', {}).get(stream_id)
@@ -977,7 +1012,25 @@ class BitBangBase:
         # the message boundary is preserved (the type byte is in the first chunk).
         rx = peer.setdefault('ws_rx', {})
         if flags & FLAG_MORE:
-            rx.setdefault(stream_id, bytearray()).extend(payload)
+            buf = rx.get(stream_id)
+            if buf is None:
+                if len(rx) >= MAX_WS_REASSEMBLY_STREAMS:
+                    await self._abort_ws_reassembly(
+                        peer, stream_id,
+                        f"too many partial messages ({len(rx)})")
+                    return
+                buf = bytearray()
+                rx[stream_id] = buf
+            # Summed rather than tracked in a counter: the dict is bounded by
+            # MAX_WS_REASSEMBLY_STREAMS, so this is cheap, and a counter would
+            # have to be kept correct across every teardown path.
+            pending = sum(len(b) for b in rx.values())
+            if (len(buf) + len(payload) > MAX_WS_REASSEMBLY
+                    or pending + len(payload) > MAX_WS_REASSEMBLY_TOTAL):
+                await self._abort_ws_reassembly(
+                    peer, stream_id, "message exceeded the reassembly limit")
+                return
+            buf.extend(payload)
             return
         if stream_id in rx:
             buf = rx.pop(stream_id)
