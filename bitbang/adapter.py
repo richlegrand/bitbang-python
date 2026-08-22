@@ -195,7 +195,8 @@ class BitBangBase:
     def __init__(self, app, server=None, debug=False,
                  ephemeral=False, identity_path=None, regenerate=False,
                  ice_servers=None, program_name=None,
-                 pin=None):
+                 pin=None, product=None, product_version=None,
+                 install_hint=None):
         """Initialize the adapter.
 
         Args:
@@ -209,7 +210,25 @@ class BitBangBase:
             program_name: Program name for identity (e.g. 'fileshare', 'webcam')
             pin: Simple PIN string for access protection. For per-path
                  custom auth, register a checker via @adapter.pin_callback.
+            product: Row to read from the server's latest-release table
+                 when deciding whether to print an update notice.
+                 Defaults to "python", this package. An application that
+                 embeds it should name itself instead -- someone running
+                 the OctoPrint plugin upgrades the plugin, not this
+                 library, so telling them about this library's release
+                 would send them to the wrong place.
+            product_version: The version to compare against, paired with
+                 `product`. Defaults to this package's own.
+            install_hint: Upgrade command or URL appended to the notice.
         """
+        from . import __version__
+
+        self.product = product or "python"
+        self.product_version = product_version or __version__
+        self.install_hint = install_hint or (
+            "pip install --upgrade bitbang" if self.product == "python" else None
+        )
+
         from .identity import load_or_create_identity, public_key_to_base64
 
         self.private_key, self.uid, self.code = load_or_create_identity(
@@ -456,6 +475,21 @@ class BitBangBase:
             print()
             print_qr_code(url)
             print(f"\nReady: {url}\n")
+
+            # The same reply carries the latest release of every BitBang
+            # client project. We send nothing to get it, and read only
+            # our own row. Printed once per registration; a reconnect
+            # loop re-registers, so this is the one place it belongs
+            # rather than anywhere in the message loop.
+            from .update import update_notice
+            notice = update_notice(
+                data.get('versions'),
+                self.product_version,
+                self.product,
+                self.install_hint,
+            )
+            if notice:
+                print(f"{notice}\n")
             return True
 
         if data['type'] == 'error':
