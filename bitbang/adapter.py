@@ -1403,10 +1403,18 @@ class BitBangBase:
     def _get_backpressure_params(self, client_id):
         """Get the backpressure high-water mark and SCTP transport for a peer.
 
+        The limit covers the app buffer plus SCTP in-flight, so it is a send
+        window and not just a memory bound: throughput cannot exceed
+        limit/RTT, and anything held beyond the bandwidth-delay product is
+        pure added latency for everything else sharing the channel. 1 MB sits
+        at or under the BDP of an ordinary path, so a download stops queueing
+        ahead of the wire without costing throughput. It matches the CLI
+        (bytestream.MaxBufferedAmount) and SWSP v4's per-stream window.
+
         On Windows, aiortc's pure-Python SCTP floods the shared UDP socket,
-        causing ICE consent checks (RFC 7675) to fail after ~30s. Limit the
-        total backlog (app buffer + SCTP in-flight) to keep consent alive.
-        On other platforms this isn't an issue so we use a larger buffer.
+        causing ICE consent checks (RFC 7675) to fail after ~30s. That needs a
+        much tighter backlog, which costs throughput on a distant peer -- but
+        a stalled session costs more.
         """
         pc = self.peers.get(client_id, {}).get('pc') if client_id else None
         sctp = pc.sctp if pc and hasattr(pc, 'sctp') and pc.sctp else None
@@ -1414,7 +1422,7 @@ class BitBangBase:
         if sys.platform == 'win32' and sctp:
             limit = 128 * 1024
         else:
-            limit = 4 * 1024 * 1024
+            limit = 1024 * 1024
 
         return limit, sctp
 
