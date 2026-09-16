@@ -9,7 +9,8 @@
     </style>
 </head>
 <body>
-    <video id="video" data-bitbang-stream="webcam" autoplay playsinline muted></video>
+    <!-- The name has to match what the adapter reports in get_stream_metadata. -->
+    <video id="video" data-bitbang-stream="cam/video" autoplay playsinline muted></video>
     <p id="status">Streaming via BitBang</p>
 </body>
 </html>

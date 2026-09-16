@@ -84,9 +84,19 @@ class WebcamBitBang(BitBangWSGI):
             print(f"Added relayed webcam video track for {client_id}")
 
     def get_stream_metadata(self):
-        """Return stream name for video track."""
+        """Name the video track, keyed by transceiver mid.
+
+        The name is <presentation>/<component>, which is the one thing every
+        transport agrees on: a page binds a track with
+        data-bitbang-stream="cam/video" whether the frames arrive as RTP from
+        here or as chunks on a data channel from an ESP32. How a stream is
+        asked for does differ -- RTP is negotiated per peer in the SDP, so an
+        uninterested page never receives one, while a device that declares a
+        data channel unconditionally needs an explicit subscribe. That
+        difference is real and is not worth papering over; the name is not.
+        """
         if self.player and self.player.video:
-            return {"0": "webcam"}
+            return {"0": "cam/video"}
         return {}
 
     async def close(self):

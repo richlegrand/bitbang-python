@@ -367,8 +367,10 @@ class BitBangBase:
         The bootstrap page uses this to wire <video>/<audio> elements.
 
         Returns:
-            dict: Mapping of media line index to stream name
-                  e.g., {"0": "webcam", "1": "microphone"}
+            dict: Mapping of media line index to stream name, which is
+                  <presentation>/<component> so that one page binds the same
+                  name whichever transport carries the frames
+                  e.g., {"0": "cam/video", "1": "cam/audio"}
         """
         return {}
 
