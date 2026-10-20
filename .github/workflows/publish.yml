@@ -3,6 +3,7 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:   # manual build (no publish) to check the package first
 
 jobs:
   publish:
@@ -20,7 +21,19 @@ jobs:
           pip install build
           python -m build
 
+      # So a manual run leaves something to inspect -- the version and the
+      # declared dependencies are the parts worth reading before PyPI takes
+      # the upload, which it will not take twice.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # Guarded, because workflow_dispatch runs this same job: without it a
+      # manual build would publish, which is the opposite of checking first.
       - name: Publish to PyPI
+        if: github.event_name == 'release'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
