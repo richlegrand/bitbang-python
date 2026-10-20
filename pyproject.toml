@@ -18,7 +18,11 @@ classifiers = [
 ]
 dependencies = [
     "aiortc",
-    "websockets",
+    # adapter.py connects with additional_headers=, which replaced
+    # extra_headers= in 14.0. An older websockets already present satisfies a
+    # bare requirement, so pip leaves it alone and the WebSocket bridge then
+    # fails at connect -- quietly, because the error is caught and printed.
+    "websockets>=14",
     "flask",
     "cryptography>=3.4",
     "qrcode>=7.0",
