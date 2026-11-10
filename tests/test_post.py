@@ -2,13 +2,15 @@
 
 import json
 
+from .frames import device_frame
+
 
 def test_post_echo(device_url, browser_context):
     """POST body arrives at the device and response is returned."""
     page = browser_context.new_page()
     page.goto(device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=30000)
 
     result = frame.locator('body').evaluate('''() => {
@@ -31,7 +33,7 @@ def test_post_form_urlencoded(device_url, browser_context):
     page = browser_context.new_page()
     page.goto(device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     result = frame.locator('body').evaluate('''() => {

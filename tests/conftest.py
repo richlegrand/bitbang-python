@@ -131,8 +131,12 @@ def ws_device_url():
 
 @pytest.fixture(scope='session')
 def browser_context(playwright, device_url):
-    """Create a persistent browser context for the test session."""
-    browser = playwright.chromium.launch(headless=True)
+    """Create a persistent browser context for the test session.
+
+    Chromium unless BITBANG_ENGINE names another Playwright engine
+    (firefox, webkit), as in the CLI's e2e suite."""
+    engine = os.environ.get('BITBANG_ENGINE', 'chromium')
+    browser = getattr(playwright, engine).launch(headless=True)
     context = browser.new_context()
     yield context
     context.close()

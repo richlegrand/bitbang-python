@@ -2,6 +2,8 @@
 
 from urllib.parse import urlparse, urlunparse
 
+from .frames import device_frame
+
 
 def _with_path(url: str, path: str) -> str:
     """Append a device path to `url` inside the fragment.
@@ -47,7 +49,7 @@ def test_pin_correct_proceeds(pin_device_url, playwright):
     page.click('#pin-submit')
 
     # Wait for device content to load in the iframe
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     heading = frame.locator('#heading')
     heading.wait_for(timeout=15000)
 
@@ -80,7 +82,7 @@ def test_pin_wrong_retries(pin_device_url, playwright):
     page.fill('#pin-input', '1234')
     page.click('#pin-submit')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     heading = frame.locator('#heading')
     heading.wait_for(timeout=15000)
     assert heading.text_content() == 'Hello from BitBang'
@@ -99,7 +101,7 @@ def test_pin_callback_open_path(pin_callback_device_url, playwright):
     page.goto(pin_callback_device_url, wait_until='networkidle')
 
     # Should load directly without PIN prompt
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     heading = frame.locator('#heading')
     heading.wait_for(timeout=15000)
     assert heading.text_content() == 'Hello from BitBang'
@@ -126,7 +128,7 @@ def test_pin_callback_protected_path(pin_callback_device_url, playwright):
     page.click('#pin-submit')
 
     # Should load the protected content
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('body').wait_for(timeout=15000)
 
     page.close()

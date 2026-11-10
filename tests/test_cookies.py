@@ -1,7 +1,9 @@
-"""Test cookie handling through the SW cookie jar."""
+"""Test cookie handling through the label worker's cookie jar."""
 
 import json
 import pytest
+
+from .frames import device_frame
 
 
 
@@ -10,7 +12,7 @@ def test_login_sets_cookie(device_url, browser_context):
     page = browser_context.new_page()
     page.goto(device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     # POST to /login — should set a cookie
@@ -38,7 +40,7 @@ def test_logout_clears_cookie(device_url, browser_context):
     page = browser_context.new_page()
     page.goto(device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     # Login first

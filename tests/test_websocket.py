@@ -1,5 +1,6 @@
 """Test WebSocket bridging through the BitBang data channel."""
 
+from .frames import device_frame
 
 def test_websocket_echo(ws_device_url, playwright):
     """WebSocket messages round-trip through the BitBang tunnel."""
@@ -8,7 +9,7 @@ def test_websocket_echo(ws_device_url, playwright):
     page = context.new_page()
     page.goto(ws_device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     # Run the WebSocket test from the page's JS
@@ -59,7 +60,7 @@ def test_websocket_binary(ws_device_url, playwright):
     page = context.new_page()
     page.goto(ws_device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     # Send and receive binary data

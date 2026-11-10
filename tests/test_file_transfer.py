@@ -2,13 +2,15 @@
 
 import json
 
+from .frames import device_frame
+
 
 def test_file_download(device_url, browser_context):
     """Download a ~100KB file through the WebRTC data channel."""
     page = browser_context.new_page()
     page.goto(device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     # Fetch the file and check its size
@@ -35,7 +37,7 @@ def test_file_upload(device_url, browser_context):
     page = browser_context.new_page()
     page.goto(device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     # Upload 10KB of data

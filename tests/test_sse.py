@@ -1,12 +1,13 @@
 """Test Server-Sent Events streaming through the data channel."""
 
+from .frames import device_frame
 
 def test_sse_messages_arrive(device_url, browser_context):
     """SSE stream delivers messages incrementally through WebRTC."""
     page = browser_context.new_page()
     page.goto(device_url, wait_until='networkidle')
 
-    frame = page.frame_locator('#device-frame')
+    frame = device_frame(page)
     frame.locator('#heading').wait_for(timeout=15000)
 
     # Open an EventSource and collect messages
