@@ -111,6 +111,69 @@ def _extract_dtls_fingerprint(sdp: str) -> str:
     """
     m = _FINGERPRINT_RE.search(sdp or '')
     return m.group(1).upper() if m else ''
+
+
+# The device challenge (bitbang-docs/device-origins.md, "The device
+# challenge"): every offer carries CHALLENGE_LEN fresh random bytes, and the
+# payload that names them is good for that connection only. Two payload forms:
+#
+#   {fp, nonce, code, challenge}  fp is the answer's DTLS fingerprint as its
+#                                 32 bytes in base64 -- compact, so the payload
+#                                 fits RSA-2048 OAEP's 190 bytes.
+#   {fingerprint, nonce, code}    the older form, fingerprint as SDP writes it.
+#                                 Accepted for now, from connectors that
+#                                 predate the challenge; it can be replayed by
+#                                 whoever captures it.
+#
+# A payload mixing the two is rejected rather than guessed at. Matches
+# checkBinding in the CLI's internal/peer/verify.go.
+CHALLENGE_LEN = 16
+
+
+class VerifyError(Exception):
+    """The payload is not bound to this connection."""
+
+
+def _check_binding(req: dict, sdp_fingerprint: str, issued) -> bool:
+    """Check a decrypted payload belongs to this connection.
+
+    sdp_fingerprint is the answer SDP's, as _extract_dtls_fingerprint gives
+    it; issued is the challenge this connection's offer carried, or None.
+    Returns True for the challenge form, False for an acceptable payload in
+    the older (replayable) form, and raises VerifyError otherwise.
+    """
+    if not sdp_fingerprint:
+        raise VerifyError("no sha-256 fingerprint in answer SDP")
+    has_fp, has_challenge = 'fp' in req, 'challenge' in req
+    if not has_fp and not has_challenge:
+        claimed = req.get('fingerprint')
+        if not isinstance(claimed, str) or not claimed:
+            raise VerifyError("payload has no fingerprint")
+        if claimed.upper() != sdp_fingerprint:
+            raise VerifyError(
+                f"DTLS fingerprint mismatch: browser claimed {claimed}, "
+                f"SDP has {sdp_fingerprint} — possible rogue relay")
+        return False
+    if not (has_fp and has_challenge) or 'fingerprint' in req:
+        raise VerifyError("payload mixes the challenge and older forms")
+    if not issued or len(issued) != CHALLENGE_LEN:
+        raise VerifyError("payload names a challenge, but this connection issued none")
+    try:
+        got = base64.b64decode(req['challenge'], validate=True)
+        fp = base64.b64decode(req['fp'], validate=True)
+    except Exception:
+        raise VerifyError("payload's challenge or fp is not base64")
+    if not hmac.compare_digest(got, issued):
+        raise VerifyError("challenge is not this connection's")
+    try:
+        want = bytes.fromhex(sdp_fingerprint.replace(':', ''))
+    except ValueError:
+        raise VerifyError("answer SDP's fingerprint is not hex")
+    if len(want) != 32 or not hmac.compare_digest(fp, want):
+        raise VerifyError(
+            f"DTLS fingerprint mismatch: browser claimed {fp.hex()}, "
+            f"SDP has {sdp_fingerprint} — possible rogue relay")
+    return True
 SWSP_CHUNK_SIZE = 16384  # 16KB chunks
 
 BANNER = r"""   ___         ___
@@ -570,7 +633,13 @@ class BitBangBase:
 
         pc = peer['pc']
         candidate_info = data['candidate']
-        cand_str = candidate_info['candidate']
+        cand_str = candidate_info.get('candidate') or ''
+        # Firefox ends gathering with a candidate whose string is empty, and
+        # browsers already installed still forward it. Nothing to add -- and
+        # candidate_from_sdp asserts on it, which used to take this whole
+        # signaling loop down for a few seconds after every Firefox connection.
+        if not cand_str:
+            return
         if cand_str.startswith('candidate:'):
             cand_str = cand_str[10:]
 
@@ -679,6 +748,9 @@ class BitBangBase:
                 # Bidirectional-verify state — set by handle_answer when the
                 # browser delivers the encrypted payload riding on the SDP.
                 'verify_nonce': None,
+                # This connection's challenge, sent in its offer. Taken out
+                # by handle_answer, so no second answer can name it.
+                'challenge': os.urandom(CHALLENGE_LEN),
                 'verify_failed': False,
                 # SECURITY: SWSP authentication gate. Flipped True only
                 # after a successful stream-0 connect (no PIN required)
@@ -781,6 +853,9 @@ class BitBangBase:
             "client_id": client_id,
             "streams": streams,
         }
+        challenge = self.peers.get(client_id, {}).get('challenge')
+        if challenge:
+            response["challenge"] = base64.b64encode(challenge).decode('ascii')
         if self.program_name:
             response["device_name"] = self.program_name
         await ws.send(json.dumps(response))
@@ -877,11 +952,15 @@ class BitBangBase:
                 print(f"Missing encrypted_request from browser ({client_id}) — bidirectional verify required")
                 return
 
+            # The challenge is spent by this answer whatever happens to it.
+            issued = peer.pop('challenge', None)
+
             try:
                 ciphertext = base64.b64decode(encrypted_b64)
                 plaintext = decrypt_oaep(self.private_key, ciphertext)
                 req = json.loads(plaintext.decode('utf-8'))
-                claimed_fp = req['fingerprint']
+                if not isinstance(req, dict):
+                    raise ValueError("payload is not an object")
                 nonce = base64.b64decode(req['nonce'])
                 claimed_code = req.get('code', '')
             except Exception as e:
@@ -901,19 +980,18 @@ class BitBangBase:
                 )
                 return
 
-            actual_fp = _extract_dtls_fingerprint(sdp_val)
-            if not actual_fp:
+            # Bound to this connection: the answer's own fingerprint, and the
+            # challenge this connection's offer issued. aiortc's DTLS then
+            # holds the connection to the fingerprint in the SDP.
+            try:
+                bound = _check_binding(req, _extract_dtls_fingerprint(sdp_val), issued)
+            except VerifyError as e:
                 peer['verify_failed'] = True
-                print(f"No sha-256 fingerprint in answer SDP from {client_id}")
+                print(f"Rejecting {client_id}: {e}")
                 return
-
-            if claimed_fp.upper() != actual_fp:
-                peer['verify_failed'] = True
-                print(
-                    f"DTLS fingerprint mismatch from {client_id}: "
-                    f"browser claimed {claimed_fp}, SDP has {actual_fp} — possible rogue relay"
-                )
-                return
+            if not bound:
+                print(f"{client_id} answered without the challenge (an older connector); "
+                      f"its payload is replayable")
 
             peer['verify_nonce'] = nonce
             if self.debug:
